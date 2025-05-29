@@ -1,0 +1,54 @@
+#statistics-container {
+    padding: 20px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+#statistics-container h3 {
+    font-size: 1.5em;
+    margin-bottom: 20px;
+    color: #333;
+}
+
+.chart-container {
+    margin-bottom: 30px;
+    padding: 15px;
+    background-color: #fff;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.chart-container h4 {
+    font-size: 1.2em;
+    margin-bottom: 15px;
+    color: #555;
+}
+
+.chart-container canvas {
+    max-width: 200px;
+    max-height: 200px;
+}
+
+.conclusion-container {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #fff;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.conclusion-container h4 {
+    font-size: 1.2em;
+    margin-bottom: 10px;
+    color: #555;
+}
+
+.conclusion-container p {
+    font-size: 1em;
+    color: #333;
+    line-height: 1.5;
+}

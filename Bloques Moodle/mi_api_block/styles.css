@@ -1,0 +1,159 @@
+/* Ocultar el título del bloque */
+.block_mi_api_block .block-title {
+    display: none;
+}
+
+/* Hacer el bloque más ancho y eliminar sombras */
+.block_mi_api_block {
+    width: 100% !important; /* Forzar el ancho máximo */
+    margin: 0 !important; /* Eliminar márgenes externos */
+    padding: 0 !important; /* Eliminar paddings externos */
+}
+
+/* Estilo general del bloque */
+.block_mi_api_block .content {
+    padding: 5px; /* Reducir padding */
+    background-color: #f9f9f9;
+    border-radius: 0; /* Eliminar bordes redondeados */
+    box-shadow: none; /* Eliminar sombra */
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    margin: 0; /* Eliminar márgenes */
+}
+
+/* Contenedor del chat */
+#chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%; /* Asegurar que ocupe todo el ancho */
+}
+
+/* Botón "Iniciar Escaneo" */
+#btn-iniciar-escaneo {
+    padding: 5px 15px; /* Igual padding que el botón de enviar */
+    background-color: #28a745; /* Verde, alineado con los mensajes del tutor */
+    color: #fff;
+    border: none;
+    border-radius: 15px; /* Igual bordes redondeados que el botón de enviar */
+    font-size: 14px; /* Igual tamaño de fuente que el resto */
+    cursor: pointer;
+    transition: background-color 0.3s;
+    align-self: flex-start; /* Alinear a la izquierda */
+    margin-bottom: 5px; /* Espacio debajo del botón */
+}
+
+#btn-iniciar-escaneo:hover {
+    background-color: #218838; /* Verde más oscuro al pasar el mouse */
+}
+
+#btn-iniciar-escaneo:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+/* Área de mensajes */
+#chat-messages {
+    flex: 1; /* Ocupa todo el espacio disponible */
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 0; /* Eliminar bordes redondeados */
+    padding: 5px; /* Reducir padding */
+    background-color: #fff;
+    margin-bottom: 5px; /* Reducir margen inferior */
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 200px; /* Altura mínima para evitar que colapse */
+}
+
+/* Estilo para los mensajes */
+#chat-messages p {
+    margin: 2px 0; /* Reducir margen vertical */
+    padding: 5px 8px; /* Reducir padding */
+    border-radius: 10px; /* Reducir bordes redondeados */
+    max-width: 90%; /* Aumentar el ancho máximo de los mensajes */
+    word-wrap: break-word;
+}
+
+/* Mensajes del usuario (Tú) */
+#chat-messages p strong:contains("Tú:") {
+    color: #007bff;
+}
+#chat-messages p strong:contains("Tú:") + * {
+    background-color: #e7f3ff;
+    margin-left: auto;
+    margin-right: 5px; /* Reducir margen */
+    text-align: right;
+}
+
+/* Mensajes del tutor (Bot o Tutor) */
+#chat-messages p strong:contains("Bot:"),
+#chat-messages p strong:contains("Tutor:") {
+    color: #28a745;
+}
+#chat-messages p strong:contains("Bot:") + *,
+#chat-messages p strong:contains("Tutor:") + * {
+    background-color: #e9f7ef;
+    margin-right: auto;
+    margin-left: 5px; /* Reducir margen */
+}
+
+/* Mensajes de error o debug */
+#chat-messages p strong:contains("Error:"),
+#chat-messages p strong:contains("Debug:") {
+    color: #dc3545;
+}
+
+/* Formulario de chat */
+#chat-form {
+    display: flex;
+    flex-direction: column;
+    gap: 5px; /* Reducir espacio entre elementos */
+}
+
+/* Área de entrada de texto */
+#chat-input {
+    width: 100%; /* Ocupa todo el ancho disponible */
+    padding: 5px 8px; /* Reducir padding */
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.3s;
+    resize: vertical;
+    min-height: 50px; /* Reducir altura mínima */
+}
+
+#chat-input:focus {
+    border-color: #007bff;
+    box-shadow: none; /* Eliminar sombra al enfocar */
+}
+
+#chat-input:disabled {
+    background-color: #f1f1f1;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+/* Botón de enviar */
+#chat-form button {
+    padding: 5px 15px; /* Reducir padding */
+    background-color: #007bff;
+    color: #fff;
+    border: none;
+    border-radius: 15px; /* Reducir bordes redondeados */
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    align-self: flex-end;
+}
+
+#chat-form button:hover {
+    background-color: #0056b3;
+}
+
+#chat-form button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
