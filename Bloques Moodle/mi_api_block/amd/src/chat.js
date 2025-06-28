@@ -1,14 +1,90 @@
+/* eslint-disable camelcase */
+/* eslint-disable jsdoc/require-jsdoc */
 /* eslint-disable promise/always-return */
 /* eslint-disable promise/no-nesting */
-/* eslint-disable no-trailing-spaces */
 /* eslint-disable jsdoc/require-param */
 /* eslint-disable max-len */
 /* eslint-disable no-console */
 define(['jquery'], function($) {
     // Definición de variables generales para las APIs
-    const API_tutor = 'http://localhost:8000/generar'; // API para generar respuestas del tutor
-    const API_BD_TUTOR_BASE = 'http://localhost:8080/api/'; // Base URL para la API de base de datos (se añaden endpoints específicos)
-    const API_Moodle = 'http://localhost/webservice/rest/server.php'; // API de Moodle para servicios web
+    const API_tutor = 'http://localhost:8000/generar';
+    const API_BD_TUTOR_BASE = 'http://localhost:8080/api/';
+    const API_Moodle = 'http://localhost/webservice/rest/server.php';
+
+    /**
+     * Detecta si el texto es un saludo o mensaje irrelevante.
+     * @param {string} texto
+     * @returns {boolean}
+     */
+    function esSaludoOMensajeIrrelevante(texto) {
+        const saludos = [
+            'hola', 'buenos dias', 'buenas tardes', 'buenas noches',
+            'hello', 'hi', 'saludos', 'que tal', 'cómo estás', 'como estas'
+        ];
+        const textoLimpio = texto.trim().toLowerCase();
+        return saludos.some(saludo => textoLimpio === saludo || textoLimpio.startsWith(saludo));
+    }
+
+    /**
+     * Obtiene el contexto del estudiante (notas y actividades) y lo guarda en sessionStorage.
+     * Si forceRefresh=true, fuerza la actualización desde la API.
+     * @param {number} userid
+     * @param {number} courseid
+     * @param {boolean} [forceRefresh]
+     * @returns {Promise<Array>}
+     */
+    function obtenerContextoEstudiante(userid, courseid, forceRefresh) {
+        return new Promise(function(resolve) {
+            var contextoKey = 'contexto_estudiante_' + userid + '_' + courseid;
+            if (!forceRefresh) {
+                var contextoGuardado = sessionStorage.getItem(contextoKey);
+                if (contextoGuardado) {
+                    try {
+                        var notas = JSON.parse(contextoGuardado);
+                        resolve(notas);
+                        return;
+                    } catch (e) {
+                        // Si hay error al parsear, continúa para obtenerlo de la API
+                    }
+                }
+            }
+            var params = {
+                wstoken: '10b97b49ec5c5119e48c566de5228f8f',
+                wsfunction: 'gradereport_user_get_grade_items',
+                moodlewsrestformat: 'json',
+                courseid: courseid,
+                userid: userid
+            };
+            $.ajax({
+                url: `${API_Moodle}?${$.param(params)}`,
+                method: 'GET',
+                dataType: 'json',
+                success: function(data) {
+                    var notas = [];
+                    if (data.usergrades) {
+                        data.usergrades.forEach(user => {
+                            user.gradeitems.forEach(item => {
+                                if (item.itemname) {
+                                    var grade = item.graderaw !== null ? item.graderaw : 0;
+                                    notas.push({
+                                        userid: user.userid,
+                                        name: user.userfullname,
+                                        grade: grade,
+                                        actividad: item.itemname
+                                    });
+                                }
+                            });
+                        });
+                    }
+                    sessionStorage.setItem(contextoKey, JSON.stringify(notas));
+                    resolve(notas);
+                },
+                error: function() {
+                    resolve([]);
+                }
+            });
+        });
+    }
 
     return {
         init: function(userid, courseid, role) {
@@ -16,148 +92,131 @@ define(['jquery'], function($) {
             var form = $('#chat-form');
             var chatInput = $('#chat-input');
             var submitButton = form.find('button[type="submit"]');
-
-            // Variable para controlar si el chat está bloqueado
             var isChatBlocked = false;
 
+            function scrollToBottom() {
+                messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+            }
+
+            function showUser(msg) {
+                var bubble = $('<div class="chat-bubble user-bubble"></div>').html('<span>' + $('<div>').text(msg).html() + '</span>');
+                messagesDiv.append(bubble);
+                scrollToBottom();
+            }
+
+            // Animación de "escritura" para el tutor
+            function animateTutorMessage(htmlMsg) {
+                var bubble = $('<div class="chat-bubble tutor-bubble"></div>');
+                bubble.append('<span></span>');
+                messagesDiv.append(bubble);
+                scrollToBottom();
+                // Permitir etiquetas seguras: <br>, <b>, <i>, <pre>, <code>
+                var safeHtml = htmlMsg
+                    .replace(/```([a-zA-Z]*)\n([\s\S]*?)```/g, function(match, lang, code) {
+                        return '<pre><code>' + $('<div>').text(code).html() + '</code></pre>';
+                    })
+                    .replace(/\n/g, '<br>')
+                    .replace(/<(?!br\s*\/?>|b>|\/b>|i>|\/i>|pre>|\/pre>|code>|\/code>)[^>]+>/gi, '');
+                var i = 0;
+                function typeChar() {
+                    if (i <= safeHtml.length) {
+                        bubble.find('span').html(safeHtml.slice(0, i));
+                        scrollToBottom();
+                        i++;
+                        setTimeout(typeChar, 12);
+                    } else {
+                        bubble.find('span').html(safeHtml);
+                        scrollToBottom();
+                    }
+                }
+                typeChar();
+            }
+
+            function showTutor(msg) {
+                animateTutorMessage(msg);
+            }
+
             /**
-             * Registra al usuario en la API al cargar el bloque, solo si no ha sido registrado previamente
+             * Registra al usuario en la API si no existe.
              */
             function registrarUsuario() {
-                // Verificar si el usuario ya está registrado en la base de datos
-                messagesDiv.append('<p><strong>Debug:</strong> Verificando si el usuario ya está registrado...</p>');
-                messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
+                messagesDiv.append('<p><strong>Registrando usuario...</strong></p>');
+                scrollToBottom();
                 $.ajax({
-                    url: `${API_BD_TUTOR_BASE}users/${userid}`, // Usar variable para endpoint GET de usuarios
+                    url: `${API_BD_TUTOR_BASE}users/${userid}`,
                     method: 'GET',
                     dataType: 'json',
                     success: function(response) {
-                        console.log('Usuario encontrado en la API:', response);
-                        messagesDiv.append('<p><strong>Debug:</strong> Usuario ya registrado en la API: ' + response.username + '</p>');
-                        messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
-                        // Marcar al usuario como registrado en localStorage
-                        var userRegisteredKey = 'user_registered_' + userid;
-                        localStorage.setItem(userRegisteredKey, 'true');
-                    },
-                    error: function(xhr, status, error) {
-                        // Si el usuario no existe (404), procedemos a registrarlo
-                        if (xhr.status === 404) {
-                            messagesDiv.append('<p><strong>Debug:</strong> Usuario no encontrado. Procediendo a registrar...</p>');
-                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
-                            // Construir la URL para gradereport_user_get_grade_items usando API_Moodle
-                            var params = {
-                                wstoken: '10b97b49ec5c5119e48c566de5228f8f',
-                                wsfunction: 'gradereport_user_get_grade_items',
-                                moodlewsrestformat: 'json',
-                                courseid: courseid,
-                                userid: userid
-                            };
-
-                            var queryString = $.param(params);
-                            var fullUrl = `${API_Moodle}?${queryString}`;
-
-                            console.log('URL generada para gradereport_user_get_grade_items (registro):', fullUrl);
-
-                            messagesDiv.append('<p><strong>Debug:</strong> Obteniendo nombre completo del usuario...</p>');
-                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
-                            $.ajax({
-                                url: fullUrl,
-                                method: 'GET',
-                                dataType: 'json',
-                                success: function(data) {
-                                    console.log('Respuesta de gradereport_user_get_grade_items (registro):', data);
-
-                                    var userfullname = 'Usuario Desconocido'; // Valor por defecto
-                                    if (data.usergrades && data.usergrades.length > 0) {
-                                        userfullname = data.usergrades[0].userfullname || userfullname;
+                        messagesDiv.append('<p><strong>Usuario ya registrado en la plataforma.</strong></p>');
+                        scrollToBottom();
+                        $.ajax({
+                            url: `${API_BD_TUTOR_BASE}users/${userid}`,
+                            method: 'GET',
+                            dataType: 'json',
+                            success: function(response) {
+                                $.ajax({
+                                    url: `${API_BD_TUTOR_BASE}users/register`,
+                                    method: 'POST',
+                                    data: JSON.stringify({
+                                        user_id: userid,
+                                        username: 'user_' + userid,
+                                        role: role,
+                                        userfullname: userfullname
+                                    }),
+                                    contentType: 'application/json',
+                                    success: function(response) {
+                                    },
+                                    error: function(xhr, status, error) {
                                     }
-
-                                    messagesDiv.append('<p><strong>Debug:</strong> Nombre completo del usuario: ' + userfullname + '</p>');
-                                    messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
-                                    messagesDiv.append('<p><strong>Debug:</strong> Rol del usuario: ' + role + '</p>');
-                                    messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
-                                    // Registrar al usuario en la API, incluyendo el userfullname
-                                    $.ajax({
-                                        url: `${API_BD_TUTOR_BASE}users/register`, // Usar variable para endpoint POST de registro
-                                        method: 'POST',
-                                        data: JSON.stringify({
-                                            user_id: userid,
-                                            username: 'user_' + userid,
-                                            role: role,
-                                            userfullname: userfullname
-                                        }),
-                                        contentType: 'application/json',
-                                        success: function(response) {
-                                            console.log('Usuario registrado en la API:', response);
-                                            messagesDiv.append('<p><strong>Debug:</strong> Usuario registrado en la API.</p>');
-                                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
-                                            // Marcar al usuario como registrado en localStorage
-                                            var userRegisteredKey = 'user_registered_' + userid;
-                                            localStorage.setItem(userRegisteredKey, 'true');
-                                        },
-                                        error: function(xhr, status, error) {
-                                            console.log('Error al registrar usuario:', { xhr, status, error });
-                                            messagesDiv.append('<p><strong>Debug:</strong> Error al registrar usuario: ' + error + '</p>');
-                                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                                });
+                            },
+                            error: function(xhr) {
+                                if (xhr.status === 404) {
+                                    messagesDiv.append('<p><strong>Registrando nuevo usuario...</strong></p>');
+                                    scrollToBottom();
+                                    // Obtener nombre completo
+                                    obtenerContextoEstudiante(userid, courseid, true).then(function(notas) {
+                                        var userfullname = 'Usuario Desconocido';
+                                        if (notas && notas.length > 0 && notas[0].name) {
+                                            userfullname = notas[0].name;
                                         }
+                                        $.ajax({
+                                            url: `${API_BD_TUTOR_BASE}users/register`,
+                                            method: 'POST',
+                                            data: JSON.stringify({
+                                                user_id: userid,
+                                                username: 'user_' + userid,
+                                                role: role,
+                                                userfullname: userfullname
+                                            }),
+                                            contentType: 'application/json',
+                                            success: function(response) {
+                                                messagesDiv.append('<p><strong>Usuario registrado exitosamente.</strong></p>');
+                                                scrollToBottom();
+                                            },
+                                            error: function(xhr, status, error) {
+                                                messagesDiv.append('<p><strong>Error al registrar usuario.</strong></p>');
+                                                scrollToBottom();
+                                            }
+                                        });
+                                    }).catch(function(error) {
+                                        messagesDiv.append('<p><strong>Error al obtener información del usuario.</strong></p>');
+                                        scrollToBottom();
                                     });
-                                },
-                                error: function(xhr, status, error) {
-                                    console.log('Error al obtener nombre completo del usuario:', { xhr, status, error });
-                                    messagesDiv.append('<p><strong>Debug:</strong> Error al obtener nombre completo del usuario: ' + error + '</p>');
-                                    messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
-                                    // Registrar al usuario con un userfullname por defecto en caso de error
-                                    $.ajax({
-                                        url: `${API_BD_TUTOR_BASE}users/register`, // Usar variable para endpoint POST de registro
-                                        method: 'POST',
-                                        data: JSON.stringify({
-                                            user_id: userid,
-                                            username: 'user_' + userid,
-                                            role: role,
-                                            userfullname: 'Usuario Desconocido'
-                                        }),
-                                        contentType: 'application/json',
-                                        success: function(response) {
-                                            console.log('Usuario registrado en la API (userfullname por defecto):', response);
-                                            messagesDiv.append('<p><strong>Debug:</strong> Usuario registrado en la API (userfullname por defecto).</p>');
-                                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
-                                            // Marcar al usuario como registrado en localStorage
-                                            var userRegisteredKey = 'user_registered_' + userid;
-                                            localStorage.setItem(userRegisteredKey, 'true');
-                                        },
-                                        error: function(xhr, status, error) {
-                                            console.log('Error al registrar usuario (userfullname por defecto):', { xhr, status, error });
-                                            messagesDiv.append('<p><strong>Debug:</strong> Error al registrar usuario (userfullname por defecto): ' + error + '</p>');
-                                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                                        }
-                                    });
+                                } else {
+                                    messagesDiv.append('<p><strong>Error al verificar usuario.</strong></p>');
+                                    scrollToBottom();
                                 }
-                            });
-                        } else {
-                            // Otros errores al consultar el usuario
-                            console.log('Error al verificar usuario:', { xhr, status, error });
-                            messagesDiv.append('<p><strong>Debug:</strong> Error al verificar usuario: ' + error + '</p>');
-                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                        }
+                            }
+                        });
                     }
                 });
             }
 
             /**
              * Verifica si hay un intento de cuestionario en curso y bloquea el chat si es necesario.
-             * Si no hay intentos en curso, permite ejecutar un callback (como obtenerRecomendaciones).
              */
             function verificarIntentosCuestionario(callback) {
-                // Construir la URL para gradereport_user_get_grade_items usando API_Moodle
                 var params = {
                     wstoken: '10b97b49ec5c5119e48c566de5228f8f',
                     wsfunction: 'gradereport_user_get_grade_items',
@@ -165,28 +224,15 @@ define(['jquery'], function($) {
                     courseid: courseid,
                     userid: userid
                 };
-
-                var queryString = $.param(params);
-                var fullUrl = `${API_Moodle}?${queryString}`;
-
-                console.log('URL generada para gradereport_user_get_grade_items:', fullUrl);
-
-                messagesDiv.append('<p><strong>Debug:</strong> Verificando intentos de cuestionarios...</p>');
-                messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
-                // Obtener las actividades del curso
                 $.ajax({
-                    url: fullUrl,
+                    url: `${API_Moodle}?${$.param(params)}`,
                     method: 'GET',
                     dataType: 'json',
                     success: function(data) {
-                        console.log('Respuesta de gradereport_user_get_grade_items:', data);
-
                         var actividades = [];
                         if (data.usergrades) {
                             data.usergrades.forEach(user => {
                                 user.gradeitems.forEach(item => {
-                                    // Solo incluir actividades (excluir itemname null, que es el total del curso)
                                     if (item.itemname && item.cmid) {
                                         actividades.push({
                                             cmid: item.cmid,
@@ -196,16 +242,12 @@ define(['jquery'], function($) {
                                 });
                             });
                         }
-
                         if (actividades.length === 0) {
-                            messagesDiv.append('<p><strong>Debug:</strong> No se encontraron actividades para verificar.</p>');
-                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                            // Ejecutar el callback si existe
-                            if (callback) {callback();}
+                            if (callback) {
+                                callback();
+                            }
                             return;
                         }
-
-                        // Filtrar las actividades que son cuestionarios
                         var quizzes = [];
                         var promises = actividades.map(actividad => {
                             var paramsContext = {
@@ -214,12 +256,8 @@ define(['jquery'], function($) {
                                 moodlewsrestformat: 'json',
                                 cmid: actividad.cmid
                             };
-
-                            var queryStringContext = $.param(paramsContext);
-                            var fullUrlContext = `${API_Moodle}?${queryStringContext}`;
-
                             return $.ajax({
-                                url: fullUrlContext,
+                                url: `${API_Moodle}?${$.param(paramsContext)}`,
                                 method: 'GET',
                                 dataType: 'json',
                                 success: function(contextData) {
@@ -229,26 +267,16 @@ define(['jquery'], function($) {
                                             name: actividad.name
                                         });
                                     }
-                                },
-                                error: function(xhr, status, error) {
-                                    console.log('Error al obtener datos del módulo:', { xhr, status, error });
                                 }
                             });
                         });
-
-                        // Esperar a que todas las solicitudes de core_course_get_course_module se completen
                         Promise.all(promises).then(() => {
-                            console.log('Cuestionarios encontrados:', quizzes);
-
                             if (quizzes.length === 0) {
-                                messagesDiv.append('<p><strong>Debug:</strong> No se encontraron cuestionarios para verificar.</p>');
-                                messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                                // Ejecutar el callback si existe
-                                if (callback) {callback();}
+                                if (callback) {
+                                    setTimeout(callback, 0);
+                                }
                                 return;
                             }
-
-                            // Verificar intentos en curso para cada cuestionario
                             var attemptPromises = quizzes.map(quiz => {
                                 var paramsAttempts = {
                                     wstoken: '10b97b49ec5c5119e48c566de5228f8f',
@@ -259,110 +287,67 @@ define(['jquery'], function($) {
                                     status: 'all',
                                     includepreviews: 0
                                 };
-
-                                var queryStringAttempts = $.param(paramsAttempts);
-                                var fullUrlAttempts = `${API_Moodle}?${queryStringAttempts}`;
-
-                                console.log('URL generada para mod_quiz_get_user_attempts:', fullUrlAttempts);
-
                                 return $.ajax({
-                                    url: fullUrlAttempts,
+                                    url: `${API_Moodle}?${$.param(paramsAttempts)}`,
                                     method: 'GET',
                                     dataType: 'json',
                                     success: function(attemptData) {
-                                        console.log(`Respuesta de mod_quiz_get_user_attempts para quiz ${quiz.quizid}:`, attemptData);
-
                                         if (attemptData.attempts && attemptData.attempts.length > 0) {
                                             var inProgressAttempt = attemptData.attempts.find(attempt => attempt.state === 'inprogress');
                                             if (inProgressAttempt) {
                                                 isChatBlocked = true;
-                                                messagesDiv.append('<p><strong>Tutor:</strong> No puedes enviar mensajes mientras estás realizando un cuestionario en curso.</p>');
-                                                messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                                                // Deshabilitar el formulario
+                                                showTutor('No puedes enviar mensajes mientras estás realizando un cuestionario en curso.');
                                                 chatInput.prop('disabled', true);
                                                 submitButton.prop('disabled', true);
                                             }
                                         }
-                                    },
-                                    error: function(xhr, status, error) {
-                                        console.log('Error al obtener intentos del cuestionario:', { xhr, status, error });
                                     }
                                 });
                             });
-
-                            // Esperar a que todas las solicitudes de mod_quiz_get_user_attempts se completen
                             Promise.all(attemptPromises).then(() => {
                                 if (!isChatBlocked) {
-                                    messagesDiv.append('<p><strong>Debug:</strong> No se encontraron intentos de cuestionarios en curso.</p>');
-                                    messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                                    // Ejecutar el callback si existe
-                                    if (callback) {callback();}
+                                    if (callback) {
+                                        setTimeout(callback, 0);
+                                    }
                                 }
-                            }).catch(error => {
-                                console.log('Error al verificar intentos:', error);
-                                messagesDiv.append('<p><strong>Tutor:</strong> Error al verificar intentos de cuestionarios: ' + error + '</p>');
-                                messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                                // Ejecutar el callback por seguridad
-                                if (callback) {callback();}
+                            }).catch(() => {
+                                showTutor('Error al verificar intentos de cuestionarios.');
+                                if (callback) {
+                                    setTimeout(callback, 0);
+                                }
                             });
-                        }).catch(error => {
-                            console.log('Error al obtener módulos del curso:', error);
-                            messagesDiv.append('<p><strong>Tutor:</strong> Error al verificar actividades: ' + error + '</p>');
-                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                            // Ejecutar el callback por seguridad
-                            if (callback) {callback();}
+                        }).catch(() => {
+                            showTutor('Error al verificar actividades.');
+                            if (callback) {
+                                setTimeout(callback, 0);
+                            }
                         });
                     },
                     error: function(xhr, status, error) {
-                        console.log('Error al obtener actividades:', { xhr, status, error });
-                        messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener actividades: ' + error + ' (Código: ' + xhr.status + ')</p>');
-                        messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                        // Ejecutar el callback por seguridad
-                        if (callback) {callback();}
+                        showTutor('Error al obtener actividades: ' + error + ' (Código: ' + xhr.status + ')');
+                        if (callback) {
+                            callback();
+                        }
                     }
                 });
             }
 
             /**
-             * Obtiene las calificaciones del usuario actual, genera recomendaciones y las muestra.
-             * Usa gradereport_user_get_grade_items para obtener las calificaciones y las envía a la API
-             * para generar recomendaciones personalizadas.
+             * Obtiene las calificaciones y genera recomendaciones.
              */
             function obtenerRecomendaciones() {
-                // Obtener el ID de la actividad desde la URL
-                var urlParams = new URLSearchParams(window.location.search);
-                var activityId = urlParams.get('id') || 1;
-                console.log('Valor de activityId:', activityId); // Depuración
-
-                // Usar el userid y courseid pasados desde PHP
-                var currentUserId = userid;
-                var currentCourseId = courseid;
-
-                // Construir la URL completa para la solicitud GET usando API_Moodle
                 var params = {
                     wstoken: '10b97b49ec5c5119e48c566de5228f8f',
                     wsfunction: 'gradereport_user_get_grade_items',
                     moodlewsrestformat: 'json',
-                    courseid: currentCourseId,
-                    userid: currentUserId
+                    courseid: courseid,
+                    userid: userid
                 };
-
-                var queryString = $.param(params);
-                var fullUrl = `${API_Moodle}?${queryString}`;
-
-                console.log('URL generada para gradereport_user_get_grade_items:', fullUrl);
-
-                messagesDiv.append('<p><strong>Debug:</strong> Obteniendo calificaciones...</p>');
-                messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
-                // Obtener calificaciones
                 $.ajax({
-                    url: fullUrl,
+                    url: `${API_Moodle}?${$.param(params)}`,
                     method: 'GET',
                     dataType: 'json',
                     success: function(data) {
-                        console.log('Respuesta de gradereport_user_get_grade_items:', data);
-
                         var notas = [];
                         if (data.usergrades) {
                             data.usergrades.forEach(user => {
@@ -380,28 +365,14 @@ define(['jquery'], function($) {
                                     }
                                 });
                             });
-                        } else {
-                            console.log('No se encontraron usergrades en la respuesta:', data);
-                            messagesDiv.append('<p><strong>Tutor:</strong> No se encontraron calificaciones.</p>');
-                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                            return;
                         }
-
-                        console.log('Notas procesadas (después de filtrar notas > 0):', notas);
-
                         if (notas.length === 0) {
-                            messagesDiv.append('<p><strong>Tutor:</strong> No hay actividades con notas mayores a 0 para analizar.</p>');
-                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                            showTutor('No hay actividades con notas mayores a 0 para analizar.');
                             return;
                         }
-
-                        var instruccionNotas = "Actúa como un tutor virtual especializado en la enseñanza de Análisis y Diseño de Software. Tu tarea es analizar las calificaciones de un estudiante y generar recomendaciones personalizadas para mejorar su rendimiento en cada actividad. Recibirás una lista de calificaciones en el formato: [{\"userid\": number, \"name\": string, \"grade\": number, \"actividad\": string}, ...]. Para cada actividad, evalúa la nota (que está en una escala de 0 a 10) y genera una recomendación específica basada en el rendimiento del estudiante. Si la nota es menor a 5, sugiere acciones para mejorar (por ejemplo, revisar conceptos específicos, practicar más ejercicios, o buscar ayuda adicional). Si la nota está entre 5 y 7, sugiere formas de consolidar el aprendizaje (por ejemplo, profundizar en temas específicos o aplicar conceptos en proyectos prácticos). Si la nota es mayor a 7, felicita al estudiante y sugiere cómo puede seguir avanzando (por ejemplo, explorar temas más avanzados o liderar proyectos). Devuelve las recomendaciones en formato JSON con la siguiente estructura: {\"recomendaciones\": [{\"userid\": number, \"name\": string, \"nota\": number, \"actividad\": string, \"recomendacion\": string}, ...]}. Responde en español.";
-
-                        messagesDiv.append('<p><strong>Debug:</strong> Enviando calificaciones a la API...</p>');
-                        messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
+                        var instruccionNotas = "Actúa como un tutor virtual especializado en Responsabilidad Social Empresarial. Tu tarea es analizar las calificaciones de un estudiante y generar recomendaciones personalizadas para mejorar su rendimiento en cada actividad. Recibirás una lista de calificaciones en el formato: [{\"userid\": number, \"name\": string, \"grade\": number, \"actividad\": string}, ...]. Para cada actividad, evalúa la nota (que está en una escala de 0 a 10) y genera una recomendación específica basada en el rendimiento del estudiante. Si la nota es menor a 5, sugiere acciones para mejorar (por ejemplo, revisar conceptos específicos, practicar más ejercicios, o buscar ayuda adicional). Si la nota está entre 5 y 7, sugiere formas de consolidar el aprendizaje (por ejemplo, profundizar en temas específicos o aplicar conceptos en proyectos prácticos). Si la nota es mayor a 7, felicita al estudiante y sugiere cómo puede seguir avanzando (por ejemplo, explorar temas más avanzados o liderar proyectos). Devuelve las recomendaciones en formato JSON con la siguiente estructura: {\"recomendaciones\": [{\"userid\": number, \"name\": string, \"nota\": number, \"actividad\": string, \"recomendacion\": string}, ...]}. Responde en español.";
                         $.ajax({
-                            url: API_tutor, // Usar variable para endpoint de generación
+                            url: API_tutor,
                             method: 'POST',
                             data: JSON.stringify({
                                 instruccion: instruccionNotas,
@@ -410,56 +381,37 @@ define(['jquery'], function($) {
                             }),
                             contentType: 'application/json',
                             success: function(response) {
-                                console.log('Respuesta de la API /generar:', response);
-
                                 if (response.respuesta) {
                                     var cleanedResponse = response.respuesta
                                         .replace(/```json\n/, '')
                                         .replace(/\n```/, '')
                                         .trim();
-
-                                    console.log('Respuesta limpia:', cleanedResponse);
-
                                     try {
                                         var recomendaciones = JSON.parse(cleanedResponse);
-                                        console.log('Recomendaciones parseadas:', recomendaciones);
-
                                         if (recomendaciones.recomendaciones && recomendaciones.recomendaciones.length > 0) {
                                             var studentName = recomendaciones.recomendaciones[0].name;
                                             var mensaje = `Hola ${studentName}, he analizado tus calificaciones. Aquí tienes algunas recomendaciones para mejorar:<br>`;
                                             recomendaciones.recomendaciones.forEach(rec => {
                                                 mensaje += `- En ${rec.actividad}, obtuviste ${rec.nota}: ${rec.recomendacion}<br>`;
                                             });
-
-                                            messagesDiv.append(`<p><strong>Tutor:</strong> ${mensaje}</p>`);
-                                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                                            showTutor(mensaje);
                                         } else {
-                                            messagesDiv.append('<p><strong>Tutor:</strong> Error: No se encontraron recomendaciones en la respuesta.</p>');
-                                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                                            showTutor('Error: No se encontraron recomendaciones en la respuesta.');
                                         }
                                     } catch (parseError) {
-                                        console.log('Error al parsear la respuesta:', parseError);
-                                        messagesDiv.append('<p><strong>Tutor:</strong> Error al parsear las recomendaciones: ' + parseError.message + '</p>');
-                                        messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                                        showTutor('Error al parsear las recomendaciones: ' + parseError.message);
                                     }
                                 } else {
-                                    messagesDiv.append('<p><strong>Tutor:</strong> Error: Respuesta inválida de la API.</p>');
-                                    messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                                    showTutor('Error: Respuesta inválida de la API.');
                                 }
                             },
                             error: function(xhr, status, error) {
-                                console.log('Error al obtener recomendaciones:', { xhr, status, error });
-                                messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener recomendaciones: ' + error + '</p>');
-                                messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                                showTutor('Error al obtener recomendaciones: ' + error);
                             }
                         });
                     },
                     error: function(xhr, status, error) {
-                        console.log('Error al obtener calificaciones:', { xhr, status, error });
-                        console.log('Código de estado HTTP:', xhr.status);
-                        console.log('Respuesta del servidor:', xhr.responseText);
-                        messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener calificaciones: ' + error + ' (Código: ' + xhr.status + ')</p>');
-                        messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                        showTutor('Error al obtener calificaciones: ' + error + ' (Código: ' + xhr.status + ')');
                     }
                 });
             }
@@ -470,113 +422,93 @@ define(['jquery'], function($) {
             // Verificar intentos de cuestionarios en curso al cargar el bloque
             verificarIntentosCuestionario();
 
-            // Configurar el botón de escaneo
+            // Configurar el botón de escaneo para refrescar contexto y recomendaciones
             var btnIniciarEscaneo = $('#btn-iniciar-escaneo');
             if (btnIniciarEscaneo.length) {
                 btnIniciarEscaneo.on('click', function() {
-                    messagesDiv.append('<p><strong>Debug:</strong> Iniciando escaneo del curso...</p>');
-                    messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                    // Ejecutar verificarIntentosCuestionario y pasar obtenerRecomendaciones como callback
-                    verificarIntentosCuestionario(obtenerRecomendaciones);
+                    messagesDiv.append('<p><strong>Actualizando contexto del estudiante...</strong></p>');
+                    scrollToBottom();
+                    // Refresca el contexto en sessionStorage
+                    obtenerContextoEstudiante(userid, courseid, true).then(function() {
+                        verificarIntentosCuestionario(obtenerRecomendaciones);
+                    }).catch(function(error) {
+                    });
                 });
             } else {
-                console.log('Botón de escaneo no encontrado');
-                messagesDiv.append('<p><strong>Error:</strong> Botón de escaneo no encontrado</p>');
-                messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                messagesDiv.append('<p><strong>Botón de escaneo no encontrado.</strong></p>');
+                scrollToBottom();
             }
 
+            // Manejo del formulario de chat
             if (form.length) {
                 form.on('submit', function(e) {
                     e.preventDefault();
-
-                    // Verificar si el chat está bloqueado
                     if (isChatBlocked) {
-                        messagesDiv.append('<p><strong>Tutor:</strong> No puedes enviar mensajes mientras estás realizando un cuestionario en curso.</p>');
-                        messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                        showTutor('No puedes enviar mensajes mientras estás realizando un cuestionario en curso.');
                         return;
                     }
-
                     var message = chatInput.val();
-
                     if (message.trim() === '') {
                         return;
                     }
-
-                    messagesDiv.append('<p><strong>Tú:</strong> ' + message + '</p>');
-                    messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                    if (esSaludoOMensajeIrrelevante(message)) {
+                        // Mensaje del bot, no del tutor, así que burbuja tipo tutor
+                        var bubble = $('<div class="chat-bubble tutor-bubble"></div>').html('<span>¡Hola! Por favor, realiza preguntas relacionadas con Responsabilidad Social Empresarial o sobre tu progreso en el curso para que pueda ayudarte mejor.</span>');
+                        messagesDiv.append(bubble);
+                        scrollToBottom();
+                        chatInput.val('');
+                        return;
+                    }
+                    showUser(message);
                     chatInput.val('');
-
                     // Guardar el mensaje del usuario en la API
                     $.ajax({
-                        url: `${API_BD_TUTOR_BASE}messages/save`, // Usar variable para endpoint POST de mensajes
+                        url: `${API_BD_TUTOR_BASE}messages/save`,
                         method: 'POST',
                         data: JSON.stringify({
                             user_id: userid,
                             message_type: 'input',
                             message_text: message
                         }),
-                        contentType: 'application/json',
-                        success: function(response) {
-                            console.log('Mensaje del usuario guardado:', response);
-                            messagesDiv.append('<p><strong>Debug:</strong> Mensaje del usuario guardado en la API.</p>');
-                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                        },
-                        error: function(xhr, status, error) {
-                            console.log('Error al guardar mensaje del usuario:', { xhr, status, error });
-                            messagesDiv.append('<p><strong>Debug:</strong> Error al guardar mensaje del usuario: ' + error + '</p>');
-                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                        }
+                        contentType: 'application/json'
                     });
-
-                    messagesDiv.append('<p><strong>Debug:</strong> Enviando a la API...</p>');
-                    messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
-                    var instruccion = "Actúa como un profesor especializado en Análisis y Diseño de Software. Responde todas las preguntas relacionadas con el tema de forma clara, detallada y estructurada, utilizando ejemplos prácticos y profundizando en las teorías, principios y metodologías que conforman el área. Tus respuestas deben incluir aspectos tanto teóricos como prácticos, explicando de forma comprensible conceptos como los diagramas UML, las metodologías ágiles, el ciclo de vida del software, los patrones de diseño, la arquitectura de software, la ingeniería de requisitos, y otras áreas clave del análisis y diseño de software. Responde en español de manera técnica, pero accesible para estudiantes. Responde que no puedes ayudar si preguntan algo que no este relacionado al Análisis y Diseño de Software.";
-
-                    $.ajax({
-                        url: API_tutor, // Usar variable para endpoint de generación
-                        method: 'POST',
-                        data: JSON.stringify({
-                            instruccion: instruccion,
-                            entrada: message,
-                            max_nuevos_tokens: 1000
-                        }),
-                        contentType: 'application/json',
-                        success: function(response) {
-                            var tutorResponse = response.respuesta;
-                            messagesDiv.append('<p><strong>Bot:</strong> ' + tutorResponse + '</p>');
-                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
-                            // Guardar la respuesta del tutor en la API
-                            $.ajax({
-                                url: `${API_BD_TUTOR_BASE}messages/save`, // Usar variable para endpoint POST de mensajes
-                                method: 'POST',
-                                data: JSON.stringify({
-                                    user_id: userid,
-                                    message_type: 'output',
-                                    message_text: tutorResponse
-                                }),
-                                contentType: 'application/json',
-                                success: function(saveResponse) {
-                                    console.log('Respuesta del tutor guardada:', saveResponse);
-                                    messagesDiv.append('<p><strong>Debug:</strong> Respuesta del tutor guardada en la API.</p>');
-                                    messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                                },
-                                error: function(xhr, status, error) {
-                                    console.log('Error al guardar respuesta del tutor:', { xhr, status, error });
-                                    messagesDiv.append('<p><strong>Debug:</strong> Error al guardar respuesta del tutor: ' + error + '</p>');
-                                    messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                                }
-                            });
-                        },
-                        error: function(xhr, status, error) {
-                            messagesDiv.append('<p><strong>Bot:</strong> Error al conectar con la API: ' + error + '</p>');
-                            messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                        }
+                    obtenerContextoEstudiante(userid, courseid).then(function(notas) {
+                        var instruccion = "Actúa como un profesor especializado en Responsabilidad Social Empresarial. Responde todas las preguntas relacionadas con el tema de forma clara, detallada y estructurada, utilizando ejemplos prácticos y profundizando en las teorías, principios y metodologías que conforman el área. Además, si la pregunta está relacionada con el estudiante, sus calificaciones o su progreso, utiliza el siguiente contexto del estudiante para personalizar tu respuesta. Si el mensaje no está relacionado con Responsabilidad Social Empresarial o el curso, responde que solo puedes ayudar en esos temas. Responde en español de manera técnica, pero accesible para estudiantes. CONTEXTO_ESTUDIANTE: " + JSON.stringify(notas);
+                        $.ajax({
+                            url: API_tutor,
+                            method: 'POST',
+                            data: JSON.stringify({
+                                instruccion: instruccion,
+                                entrada: message,
+                                max_nuevos_tokens: 1000
+                            }),
+                            contentType: 'application/json',
+                            success: function(response) {
+                                var tutorResponse = response.respuesta;
+                                showTutor(tutorResponse);
+                                // Guardar la respuesta del tutor en la API
+                                $.ajax({
+                                    url: `${API_BD_TUTOR_BASE}messages/save`,
+                                    method: 'POST',
+                                    data: JSON.stringify({
+                                        user_id: userid,
+                                        message_type: 'output',
+                                        message_text: tutorResponse
+                                    }),
+                                    contentType: 'application/json'
+                                });
+                            },
+                            error: function(xhr, status, error) {
+                                showTutor('Error al conectar con la API: ' + error);
+                            }
+                        });
+                    }).catch(function(error) {
+                        showTutor('Error al obtener el contexto del estudiante: ' + error);
                     });
                 });
             } else {
-                messagesDiv.append('<p><strong>Error:</strong> Formulario no encontrado</p>');
+                messagesDiv.append('<p><strong>Formulario de chat no encontrado.</strong></p>');
+                scrollToBottom();
             }
         }
     };

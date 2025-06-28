@@ -24,227 +24,244 @@ define(['jquery', 'core/str'], function($, str) {
     return {
         init: function() {
             var statisticsDiv = $('#statistics-content');
+            var isLoading = false;
+            // Eliminar lógica de toggle y solo cargar estadísticas automáticamente
+            cargarEstadisticas();
 
-            // Obtener la cadena de idioma necesaria
-            var strings = [
-                {key: 'no_data', component: 'block_tutor_statistics'}
-            ];
+            function cargarEstadisticas() {
+                if (isLoading) {
+                    return;
+                }
+                isLoading = true;
+                // Obtener la cadena de idioma necesaria
+                var strings = [
+                    {key: 'no_data', component: 'block_tutor_statistics'}
+                ];
 
-            str.get_strings(strings).then(function(translations) {
-                var noDataString = translations[0];
-
-                // Esperar a que Chart.js esté disponible
-                waitForChart(function() {
-                    // Obtener estadísticas desde la API
-                    $.ajax({
-                        url: `${API_BD_TUTOR_BASE}statistics`, // Usar variable para endpoint GET de estadísticas
-                        method: 'GET',
-                        dataType: 'json',
-                        success: function(response) {
-                            console.log('Estadísticas obtenidas:', response);
-
-                            // Gráfico para el usuario más activo (Pie Chart)
-                            var topUserCtx = $('#top-user-chart')[0].getContext('2d');
-                            if (response.top_user && response.total_messages > 0) {
-                                var topUserMessages = response.top_user.total_messages || 0;
-                                var otherMessages = response.total_messages - topUserMessages;
-                                new Chart(topUserCtx, {
-                                    type: 'pie',
-                                    data: {
-                                        labels: [response.top_user.userfullname || 'Usuario Desconocido', 'Otros Usuarios'],
-                                        datasets: [{
-                                            label: 'Número de Mensajes',
-                                            data: [topUserMessages, otherMessages],
-                                            backgroundColor: ['#007bff', '#d3d3d3'],
-                                            borderColor: ['#0056b3', '#a9a9a9'],
-                                            borderWidth: 1
-                                        }]
-                                    },
-                                    options: {
-                                        plugins: {
-                                            legend: {
-                                                position: 'bottom',
-                                                labels: {
-                                                    font: { size: 12 }
-                                                }
-                                            },
-                                            tooltip: {
-                                                callbacks: {
-                                                    label: function(context) {
-                                                        return context.label + ': ' + context.raw + ' mensajes';
+                str.get_strings(strings).then(function(translations) {
+                    var noDataString = translations[0];
+                    waitForChart(function() {
+                        // Obtener estadísticas desde la API
+                        $.ajax({
+                            url: `${API_BD_TUTOR_BASE}statistics`,
+                            method: 'GET',
+                            dataType: 'json',
+                            success: function(statisticsResponse) {
+                                $.ajax({
+                                    url: `${API_BD_TUTOR_BASE}messages`,
+                                    method: 'GET',
+                                    dataType: 'json',
+                                    success: function(messagesResponse) {
+                                        // --- Eliminar cualquier gráfico/conclusión previo ---
+                                        var topicChartContainer = $('#top-question-chart').parent();
+                                        $('#top-question-chart').remove();
+                                        $('#top-topic-chart').remove();
+                                        statisticsDiv.find('.conclusion-container').remove();
+                                        // Enviar todos los inputs al tutor para análisis de temas
+                                        var inputMessages = messagesResponse.filter(function(msg) {
+                                            return msg.message_type === 'input';
+                                        });
+                                        var allInputs = inputMessages.map(function(msg) { return msg.message_text; });
+                                        var conclusionPrompt = `
+                                            Actúa como un tutor virtual especializado en Responsabilidad Social Empresarial. Recibirás estadísticas y todas las preguntas realizadas por los estudiantes (inputs) en el siguiente formato JSON:
+                                            {
+                                                "top_user": { "userfullname": string, "total_messages": number },
+                                                "total_messages": number,
+                                                "peak_hour": { "hour_of_day": number, "message_count": number },
+                                                "total_peak_hour_messages": number,
+                                                "inputs": [string]
+                                            }
+                                            Analiza todas las preguntas y devuelve un array JSON llamado "temas" con los 3 temas principales a reforzar (solo nombres de temas, sin explicación). Luego, genera una breve conclusión en español (máximo 50 palabras) recomendando reforzar esos temas para todos los estudiantes del curso, no solo para un usuario. No menciones datos personales ni preguntas exactas.
+                                        `;
+                                        var tutorPayload = {
+                                            top_user: statisticsResponse.top_user,
+                                            total_messages: statisticsResponse.total_messages,
+                                            peak_hour: statisticsResponse.peak_hour,
+                                            total_peak_hour_messages: statisticsResponse.total_peak_hour_messages,
+                                            inputs: allInputs
+                                        };
+                                        $.ajax({
+                                            url: API_tutor,
+                                            method: 'POST',
+                                            contentType: 'application/json',
+                                            data: JSON.stringify({
+                                                instruccion: conclusionPrompt,
+                                                entrada: JSON.stringify(tutorPayload),
+                                                max_nuevos_tokens: 256
+                                            }),
+                                            success: function(apiResponse) {
+                                                isLoading = false;
+                                                // Validar formato de respuesta
+                                                var temas = Array.isArray(apiResponse.temas) ? apiResponse.temas : [];
+                                                var conclusionText = typeof apiResponse.conclusion === 'string' ? apiResponse.conclusion : (apiResponse.respuesta || '');
+                                                // Si no hay array de temas, intentar extraerlos del texto
+                                                if (!temas.length && conclusionText) {
+                                                    var match = conclusionText.match(/temas?:\s*([\w\s,áéíóúÁÉÍÓÚüÜñÑ-]+)/i);
+                                                    if (match && match[1]) {
+                                                        temas = match[1].split(',').map(function(t) { return t.trim(); }).filter(Boolean);
                                                     }
                                                 }
-                                            }
-                                        },
-                                        animation: {
-                                            duration: 1000,
-                                            easing: 'easeOutQuart'
-                                        }
-                                    }
-                                });
-                            } else {
-                                $('#top-user-chart').replaceWith('<p>' + noDataString + ' (Usuario Más Activo)</p>');
-                            }
-
-                            // Gráfico para la hora de mayor uso (Pie Chart)
-                            var peakHourCtx = $('#peak-hour-chart')[0].getContext('2d');
-                            if (response.peak_hour && response.total_peak_hour_messages > 0) {
-                                var peakHourMessages = response.peak_hour.message_count || 0;
-                                var otherHourMessages = response.total_peak_hour_messages - peakHourMessages;
-                                new Chart(peakHourCtx, {
-                                    type: 'pie',
-                                    data: {
-                                        labels: ['Hora ' + response.peak_hour.hour_of_day, 'Otras Horas'],
-                                        datasets: [{
-                                            label: 'Mensajes en Hora Pico',
-                                            data: [peakHourMessages, otherHourMessages],
-                                            backgroundColor: ['#28a745', '#d3d3d3'],
-                                            borderColor: ['#218838', '#a9a9a9'],
-                                            borderWidth: 1
-                                        }]
-                                    },
-                                    options: {
-                                        plugins: {
-                                            legend: {
-                                                position: 'bottom',
-                                                labels: {
-                                                    font: { size: 12 }
-                                                }
-                                            },
-                                            tooltip: {
-                                                callbacks: {
-                                                    label: function(context) {
-                                                        return context.label + ': ' + context.raw + ' mensajes';
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        animation: {
-                                            duration: 1000,
-                                            easing: 'easeOutQuart'
-                                        }
-                                    }
-                                });
-                            } else {
-                                $('#peak-hour-chart').replaceWith('<p>' + noDataString + ' (Hora de Mayor Uso)</p>');
-                            }
-
-                            // Gráfico para la pregunta más frecuente (Pie Chart)
-                            var topQuestionCtx = $('#top-question-chart')[0].getContext('2d');
-                            if (response.top_question && response.total_questions > 0) {
-                                var topQuestionFrequency = response.top_question.frequency || 0;
-                                var otherQuestionsFrequency = response.total_questions - topQuestionFrequency;
-                                new Chart(topQuestionCtx, {
-                                    type: 'pie',
-                                    data: {
-                                        labels: [
-                                            response.top_question.message_text.length > 30 
-                                                ? response.top_question.message_text.substring(0, 27) + '...' 
-                                                : response.top_question.message_text,
-                                            'Otras Preguntas'
-                                        ],
-                                        datasets: [{
-                                            label: 'Frecuencia de la Pregunta',
-                                            data: [topQuestionFrequency, otherQuestionsFrequency],
-                                            backgroundColor: ['#dc3545', '#d3d3d3'],
-                                            borderColor: ['#c82333', '#a9a9a9'],
-                                            borderWidth: 1
-                                        }]
-                                    },
-                                    options: {
-                                        plugins: {
-                                            legend: {
-                                                position: 'bottom',
-                                                labels: {
-                                                    font: { size: 12 }
-                                                }
-                                            },
-                                            tooltip: {
-                                                callbacks: {
-                                                    label: function(context) {
-                                                        return context.label + ': ' + context.raw + ' veces';
-                                                    },
-                                                    title: function(context) {
-                                                        if (context[0].label !== 'Otras Preguntas') {
-                                                            return response.top_question.message_text;
+                                                // Mostrar gráfico de temas SOLO con los datos del tutor
+                                                topicChartContainer.find('#top-topic-chart').remove();
+                                                topicChartContainer.append('<canvas id="top-topic-chart"></canvas>');
+                                                var topTopicCanvas = document.getElementById('top-topic-chart');
+                                                if (topTopicCanvas) {
+                                                    var topTopicCtx = topTopicCanvas.getContext('2d');
+                                                    new Chart(topTopicCtx, {
+                                                        type: 'doughnut',
+                                                        data: {
+                                                            labels: temas.length ? temas : ['Sin temas detectados'],
+                                                            datasets: [{
+                                                                label: 'Temas a Reforzar',
+                                                                data: temas.length ? temas.map(function() { return 1; }) : [1],
+                                                                backgroundColor: ['#dc3545', '#007bff', '#28a745'],
+                                                                borderColor: ['#c82333', '#0056b3', '#218838'],
+                                                                borderWidth: 1
+                                                            }]
+                                                        },
+                                                        options: {
+                                                            plugins: {
+                                                                legend: {
+                                                                    position: 'bottom',
+                                                                    labels: {
+                                                                        font: { size: 13, weight: 'bold' }
+                                                                    }
+                                                                },
+                                                                tooltip: {
+                                                                    callbacks: {
+                                                                        label: function(context) {
+                                                                            return context.label;
+                                                                        }
+                                                                    }
+                                                                }
+                                                            },
+                                                            animation: {
+                                                                duration: 1200,
+                                                                easing: 'easeOutQuart'
+                                                            }
                                                         }
-                                                        return context[0].label;
-                                                    }
+                                                    });
                                                 }
+                                                // Mostrar conclusión
+                                                if (conclusionText) {
+                                                    statisticsDiv.append(`
+                                                        <div class="conclusion-container">
+                                                            <h4>Conclusión del Uso del Tutor Virtual</h4>
+                                                            <p>${conclusionText.replace(/\n/g, '<br>')}</p>
+                                                        </div>
+                                                    `);
+                                                } else {
+                                                    statisticsDiv.append('<p style="color:#c00;">No se pudo obtener una conclusión válida del tutor.</p>');
+                                                }
+                                            },
+                                            error: function(xhr, status, error) {
+                                                isLoading = false;
+                                                statisticsDiv.append('<p style="color:#c00;">Error al generar la conclusión: ' + error + '</p>');
                                             }
-                                        },
-                                        animation: {
-                                            duration: 1000,
-                                            easing: 'easeOutQuart'
-                                        }
+                                        });
+                                    },
+                                    error: function(xhr, status, error) {
+                                        isLoading = false;
+                                        statisticsDiv.html('<p style="color:#c00;">Error al cargar los mensajes: ' + error + '</p>');
                                     }
                                 });
-                            } else {
-                                $('#top-question-chart').replaceWith('<p>' + noDataString + ' (Pregunta Más Frecuente)</p>');
+                                // Gráfico para el usuario más activo (Pie Chart)
+                                var topUserCtx = $('#top-user-chart')[0].getContext('2d');
+                                if (statisticsResponse.top_user && statisticsResponse.total_messages > 0) {
+                                    var topUserMessages = statisticsResponse.top_user.total_messages || 0;
+                                    var otherMessages = statisticsResponse.total_messages - topUserMessages;
+                                    new Chart(topUserCtx, {
+                                        type: 'pie',
+                                        data: {
+                                            labels: [statisticsResponse.top_user.userfullname || 'Usuario Desconocido', 'Otros Usuarios'],
+                                            datasets: [{
+                                                label: 'Número de Mensajes',
+                                                data: [topUserMessages, otherMessages],
+                                                backgroundColor: ['#007bff', '#d3d3d3'],
+                                                borderColor: ['#0056b3', '#a9a9a9'],
+                                                borderWidth: 1
+                                            }]
+                                        },
+                                        options: {
+                                            plugins: {
+                                                legend: {
+                                                    position: 'bottom',
+                                                    labels: {
+                                                        font: { size: 12 }
+                                                    }
+                                                },
+                                                tooltip: {
+                                                    callbacks: {
+                                                        label: function(context) {
+                                                            return context.label + ': ' + context.raw + ' mensajes';
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            animation: {
+                                                duration: 1000,
+                                                easing: 'easeOutQuart'
+                                            }
+                                        }
+                                    });
+                                } else {
+                                    $('#top-user-chart').replaceWith('<p>' + noDataString + ' (Usuario Más Activo)</p>');
+                                }
+
+                                // Gráfico para la hora de mayor uso (Pie Chart)
+                                var peakHourCtx = $('#peak-hour-chart')[0].getContext('2d');
+                                if (statisticsResponse.peak_hour && statisticsResponse.total_peak_hour_messages > 0) {
+                                    var peakHourMessages = statisticsResponse.peak_hour.message_count || 0;
+                                    var otherHourMessages = statisticsResponse.total_peak_hour_messages - peakHourMessages;
+                                    new Chart(peakHourCtx, {
+                                        type: 'pie',
+                                        data: {
+                                            labels: ['Hora ' + statisticsResponse.peak_hour.hour_of_day, 'Otras Horas'],
+                                            datasets: [{
+                                                label: 'Mensajes en Hora Pico',
+                                                data: [peakHourMessages, otherHourMessages],
+                                                backgroundColor: ['#28a745', '#d3d3d3'],
+                                                borderColor: ['#218838', '#a9a9a9'],
+                                                borderWidth: 1
+                                            }]
+                                        },
+                                        options: {
+                                            plugins: {
+                                                legend: {
+                                                    position: 'bottom',
+                                                    labels: {
+                                                        font: { size: 12 }
+                                                    }
+                                                },
+                                                tooltip: {
+                                                    callbacks: {
+                                                        label: function(context) {
+                                                            return context.label + ': ' + context.raw + ' mensajes';
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            animation: {
+                                                duration: 1000,
+                                                easing: 'easeOutQuart'
+                                            }
+                                        }
+                                    });
+                                } else {
+                                    $('#peak-hour-chart').replaceWith('<p>' + noDataString + ' (Hora de Mayor Uso)</p>');
+                                }
+                            },
+                            error: function(xhr, status, error) {
+                                isLoading = false;
+                                statisticsDiv.html('<p style="color:#c00;">Error al cargar las estadísticas: ' + error + '</p>');
                             }
-
-                            // Enviar estadísticas a la API del tutor para generar una conclusión
-                            var conclusionPrompt = `
-                                Actúa como un tutor virtual especializado en Análisis y Diseño de Software. Recibirás estadísticas sobre el uso del tutor virtual en un curso, en el siguiente formato JSON:
-                                {
-                                    "top_user": {
-                                        "userfullname": string,
-                                        "total_messages": number
-                                    },
-                                    "total_messages": number,
-                                    "peak_hour": {
-                                        "hour_of_day": number,
-                                        "message_count": number
-                                    },
-                                    "total_peak_hour_messages": number,
-                                    "top_question": {
-                                        "message_text": string,
-                                        "frequency": number
-                                    },
-                                    "total_questions": number
-                                }
-                                Genera una conclusión breve en español (máximo 50 palabras) que recomiende un tema a reforzar para el usuario más activo, basado en la pregunta más frecuente. Usa un tono profesional y no menciones datos específicos como nombres o mensajes exactos para proteger la privacidad.
-                            `;
-
-                            $.ajax({
-                                url: API_tutor, // Usar variable para endpoint de generación
-                                method: 'POST',
-                                contentType: 'application/json',
-                                data: JSON.stringify({
-                                    instruccion: conclusionPrompt,
-                                    entrada: JSON.stringify(response),
-                                    max_nuevos_tokens: 128
-                                }),
-                                success: function(apiResponse) {
-                                    console.log('Respuesta de la API /generar (conclusión):', apiResponse);
-                                    if (apiResponse.respuesta) {
-                                        var conclusionText = apiResponse.respuesta.replace(/\n/g, '<br>');
-                                        statisticsDiv.append(`
-                                            <div class="conclusion-container">
-                                                <h4>Conclusión del Uso del Tutor Virtual</h4>
-                                                <p>${conclusionText}</p>
-                                            </div>
-                                        `);
-                                    } else {
-                                        statisticsDiv.append('<p>Error: No se pudo generar la conclusión.</p>');
-                                    }
-                                },
-                                error: function(xhr, status, error) {
-                                    console.log('Error al generar conclusión:', {xhr, status, error});
-                                    statisticsDiv.append('<p>Error al generar la conclusión: ' + error + '</p>');
-                                }
-                            });
-                        },
-                        error: function(xhr, status, error) {
-                            console.log('Error al obtener estadísticas:', {xhr, status, error});
-                            statisticsDiv.html('<p>Error al cargar las estadísticas: ' + error + '</p>');
-                        }
+                        });
                     });
+                }).fail(function(error) {
+                    isLoading = false;
+                    statisticsDiv.html('<p style="color:#c00;">Error al cargar las estadísticas: No se pudieron cargar las traducciones.</p>');
                 });
-            }).fail(function(error) {
-                console.log('Error al cargar cadenas de idioma:', error);
-                statisticsDiv.html('<p>Error al cargar las estadísticas: No se pudieron cargar las traducciones.</p>');
-            });
+            }
         }
     };
 });

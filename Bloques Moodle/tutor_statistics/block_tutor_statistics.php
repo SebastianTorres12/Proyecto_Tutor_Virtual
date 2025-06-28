@@ -23,7 +23,7 @@ class block_tutor_statistics extends block_base {
             // Incluir el archivo de estilos
             $this->page->requires->css(new moodle_url('/blocks/tutor_statistics/styles.css'));
 
-            // Contenedor para las estadísticas
+            // Contenedor para las estadísticas (sin botón)
             $this->content->text .= '
                 <div id="statistics-container">
                     <h3>Estadísticas del Tutor Virtual</h3>
@@ -37,14 +37,14 @@ class block_tutor_statistics extends block_base {
                             <canvas id="peak-hour-chart"></canvas>
                         </div>
                         <div class="chart-container">
-                            <h4>Pregunta Más Frecuente</h4>
+                            <h4>Temas Más Frecuentes</h4>
                             <canvas id="top-question-chart"></canvas>
                         </div>
                     </div>
                 </div>
             ';
 
-            // Cargar el JavaScript para obtener y mostrar las estadísticas
+            // Cargar el JavaScript para obtener y mostrar las estadísticas automáticamente
             $this->page->requires->js_call_amd('block_tutor_statistics/statistics', 'init', [
                 'userid' => $USER->id
             ]);

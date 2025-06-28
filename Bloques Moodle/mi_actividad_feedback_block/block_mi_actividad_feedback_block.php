@@ -37,7 +37,9 @@ class block_mi_actividad_feedback_block extends block_base {
 
         // Contenido del bloque
         $this->content = new stdClass();
+        // Agregar botón para solicitar retroalimentación
         $this->content->text = '<div id="feedback-container">';
+        $this->content->text .= '<button id="feedback-request-btn" type="button" class="btn btn-primary" style="margin-bottom:10px;">Solicitar retroalimentación del tutor virtual</button>';
         $this->content->text .= '<div id="feedback-messages"></div>';
         $this->content->text .= '</div>';
         return $this->content;
