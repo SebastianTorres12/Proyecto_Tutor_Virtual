@@ -26,7 +26,6 @@ class block_tutor_statistics extends block_base {
             // Contenedor para las estadísticas (sin botón)
             $this->content->text .= '
                 <div id="statistics-container">
-                    <h3>Estadísticas del Tutor Virtual</h3>
                     <div id="statistics-content">
                         <div class="chart-container">
                             <h4>Usuario Más Activo</h4>

@@ -1,10 +1,10 @@
+/* eslint-disable brace-style */
+/* eslint-disable camelcase */
 /* eslint-disable no-unused-vars */
-/* eslint-disable no-trailing-spaces */
 /* eslint-disable no-undef */
 /* eslint-disable jsdoc/require-jsdoc */
 /* eslint-disable promise/always-return */
 /* eslint-disable max-len */
-/* eslint-disable no-console */
 define(['jquery', 'core/str'], function($, str) {
     // Definición de variables generales para las APIs
     const API_BD_TUTOR_BASE = 'http://localhost:8080/api/'; // Base URL para la API de base de datos (se añaden endpoints específicos)
@@ -71,7 +71,10 @@ define(['jquery', 'core/str'], function($, str) {
                                                 "total_peak_hour_messages": number,
                                                 "inputs": [string]
                                             }
-                                            Analiza todas las preguntas y devuelve un array JSON llamado "temas" con los 3 temas principales a reforzar (solo nombres de temas, sin explicación). Luego, genera una breve conclusión en español (máximo 50 palabras) recomendando reforzar esos temas para todos los estudiantes del curso, no solo para un usuario. No menciones datos personales ni preguntas exactas.
+                                            Analiza todas las preguntas y devuelve un objeto JSON con dos propiedades:
+                                            - "temas": un array con los 3 temas principales a reforzar (solo nombres de temas, sin explicación, NO uses ejemplos genéricos ni repitas los del prompt, y NO repitas temas en el array).
+                                            - "conclusion": una conclusión breve y elaborada en español (máximo 50 palabras) dirigida al profesor, explicando por qué reforzar esos temas en el curso, basada en el análisis real de las preguntas de los estudiantes.
+                                            No incluyas datos personales ni preguntas exactas. No incluyas ejemplos de respuesta en tu salida.
                                         `;
                                         var tutorPayload = {
                                             top_user: statisticsResponse.top_user,
@@ -80,6 +83,9 @@ define(['jquery', 'core/str'], function($, str) {
                                             total_peak_hour_messages: statisticsResponse.total_peak_hour_messages,
                                             inputs: allInputs
                                         };
+                                        // --- Loader visual mientras el tutor analiza ---
+                                        var loader = $('<div class="tutor-loader" style="margin:16px 0;text-align:center;font-style:italic;color:#28a745;">El tutor está analizando los datos...</div>');
+                                        statisticsDiv.append(loader);
                                         $.ajax({
                                             url: API_tutor,
                                             method: 'POST',
@@ -91,15 +97,37 @@ define(['jquery', 'core/str'], function($, str) {
                                             }),
                                             success: function(apiResponse) {
                                                 isLoading = false;
+                                                loader.remove();
                                                 // Validar formato de respuesta
                                                 var temas = Array.isArray(apiResponse.temas) ? apiResponse.temas : [];
                                                 var conclusionText = typeof apiResponse.conclusion === 'string' ? apiResponse.conclusion : (apiResponse.respuesta || '');
-                                                // Si no hay array de temas, intentar extraerlos del texto
+                                                // Si no hay array de temas, intentar extraerlos del texto (mejorado para frases compuestas y saltos de línea)
                                                 if (!temas.length && conclusionText) {
-                                                    var match = conclusionText.match(/temas?:\s*([\w\s,áéíóúÁÉÍÓÚüÜñÑ-]+)/i);
+                                                    var match = conclusionText.match(/temas?:\s*([\w\s,;áéíóúÁÉÍÓÚüÜñÑ\-]+)(?:\.|\n|$)/i);
                                                     if (match && match[1]) {
-                                                        temas = match[1].split(',').map(function(t) { return t.trim(); }).filter(Boolean);
+                                                        temas = match[1]
+                                                            .split(/,|;|\n|\r|\.|\u2022|\-/)
+                                                            .map(function(t) { return t.trim(); })
+                                                            .filter(Boolean);
                                                     }
+                                                }
+                                                // Si la respuesta viene como string JSON, parsearla correctamente
+                                                if (!temas.length && conclusionText && conclusionText.trim().startsWith('{')) {
+                                                    try {
+                                                        var parsed = JSON.parse(conclusionText);
+                                                        if (Array.isArray(parsed.temas)) {
+                                                            temas = parsed.temas;
+                                                        }
+                                                        if (typeof parsed.conclusion === 'string') {
+                                                            conclusionText = parsed.conclusion;
+                                                        }
+                                                    } catch (e) {
+                                                        // Si falla el parseo, se mantiene el fallback
+                                                    }
+                                                }
+                                                // Limitar a solo 3 temas
+                                                if (temas.length > 3) {
+                                                    temas = temas.slice(0, 3);
                                                 }
                                                 // Mostrar gráfico de temas SOLO con los datos del tutor
                                                 topicChartContainer.find('#top-topic-chart').remove();
@@ -124,7 +152,7 @@ define(['jquery', 'core/str'], function($, str) {
                                                                 legend: {
                                                                     position: 'bottom',
                                                                     labels: {
-                                                                        font: { size: 13, weight: 'bold' }
+                                                                        font: {size: 13, weight: 'bold'}
                                                                     }
                                                                 },
                                                                 tooltip: {
@@ -142,12 +170,13 @@ define(['jquery', 'core/str'], function($, str) {
                                                         }
                                                     });
                                                 }
-                                                // Mostrar conclusión
+                                                // Mostrar conclusión enfocada al profesor
                                                 if (conclusionText) {
+                                                    var temasList = temas.length ? temas.join(', ') : 'Sin temas detectados';
                                                     statisticsDiv.append(`
                                                         <div class="conclusion-container">
-                                                            <h4>Conclusión del Uso del Tutor Virtual</h4>
-                                                            <p>${conclusionText.replace(/\n/g, '<br>')}</p>
+                                                            <h4>Recomendación para el Profesor/a</h4>
+                                                            <p><strong>Profesor/a:</strong> Se recomienda reforzar los siguientes temas de Responsabilidad Social Empresarial: <b>${temasList}</b>.<br>Razón: ${conclusionText.replace(/\n/g, '<br>')}</p>
                                                         </div>
                                                     `);
                                                 } else {
@@ -156,6 +185,7 @@ define(['jquery', 'core/str'], function($, str) {
                                             },
                                             error: function(xhr, status, error) {
                                                 isLoading = false;
+                                                loader.remove();
                                                 statisticsDiv.append('<p style="color:#c00;">Error al generar la conclusión: ' + error + '</p>');
                                             }
                                         });
@@ -187,7 +217,7 @@ define(['jquery', 'core/str'], function($, str) {
                                                 legend: {
                                                     position: 'bottom',
                                                     labels: {
-                                                        font: { size: 12 }
+                                                        font: {size: 12}
                                                     }
                                                 },
                                                 tooltip: {
@@ -230,7 +260,7 @@ define(['jquery', 'core/str'], function($, str) {
                                                 legend: {
                                                     position: 'bottom',
                                                     labels: {
-                                                        font: { size: 12 }
+                                                        font: {size: 12}
                                                     }
                                                 },
                                                 tooltip: {

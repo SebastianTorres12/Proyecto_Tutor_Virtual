@@ -104,8 +104,19 @@ define(['jquery'], function($) {
                 scrollToBottom();
             }
 
+            // Loader visual para el tutor
+            function showTutorLoader() {
+                var loader = $('<div class="chat-bubble tutor-bubble tutor-loader"></div>').html('<span><em>El tutor está escribiendo...</em></span>');
+                messagesDiv.append(loader);
+                scrollToBottom();
+            }
+            function removeTutorLoader() {
+                messagesDiv.find('.tutor-loader').remove();
+            }
+
             // Animación de "escritura" para el tutor
             function animateTutorMessage(htmlMsg) {
+                removeTutorLoader();
                 var bubble = $('<div class="chat-bubble tutor-bubble"></div>');
                 bubble.append('<span></span>');
                 messagesDiv.append(bubble);
@@ -140,20 +151,23 @@ define(['jquery'], function($) {
              * Registra al usuario en la API si no existe.
              */
             function registrarUsuario() {
-                messagesDiv.append('<p><strong>Registrando usuario...</strong></p>');
-                scrollToBottom();
                 $.ajax({
                     url: `${API_BD_TUTOR_BASE}users/${userid}`,
                     method: 'GET',
                     dataType: 'json',
-                    success: function(response) {
-                        messagesDiv.append('<p><strong>Usuario ya registrado en la plataforma.</strong></p>');
-                        scrollToBottom();
-                        $.ajax({
-                            url: `${API_BD_TUTOR_BASE}users/${userid}`,
-                            method: 'GET',
-                            dataType: 'json',
-                            success: function(response) {
+                    success: function() {
+                        // Usuario encontrado, no se hace nada
+                        localStorage.setItem('user_registered_' + userid, 'true');
+                    },
+                    error: function(xhr) {
+                        if (xhr.status === 404) {
+                            // Usuario no encontrado, se procede a registrar
+                            // Obtener nombre completo
+                            obtenerContextoEstudiante(userid, courseid, true).then(function(notas) {
+                                var userfullname = 'Usuario Desconocido';
+                                if (notas && notas.length > 0 && notas[0].name) {
+                                    userfullname = notas[0].name;
+                                }
                                 $.ajax({
                                     url: `${API_BD_TUTOR_BASE}users/register`,
                                     method: 'POST',
@@ -164,51 +178,19 @@ define(['jquery'], function($) {
                                         userfullname: userfullname
                                     }),
                                     contentType: 'application/json',
-                                    success: function(response) {
+                                    success: function() {
+                                        localStorage.setItem('user_registered_' + userid, 'true');
                                     },
-                                    error: function(xhr, status, error) {
+                                    error: function() {
+                                        // Error al registrar usuario
                                     }
                                 });
-                            },
-                            error: function(xhr) {
-                                if (xhr.status === 404) {
-                                    messagesDiv.append('<p><strong>Registrando nuevo usuario...</strong></p>');
-                                    scrollToBottom();
-                                    // Obtener nombre completo
-                                    obtenerContextoEstudiante(userid, courseid, true).then(function(notas) {
-                                        var userfullname = 'Usuario Desconocido';
-                                        if (notas && notas.length > 0 && notas[0].name) {
-                                            userfullname = notas[0].name;
-                                        }
-                                        $.ajax({
-                                            url: `${API_BD_TUTOR_BASE}users/register`,
-                                            method: 'POST',
-                                            data: JSON.stringify({
-                                                user_id: userid,
-                                                username: 'user_' + userid,
-                                                role: role,
-                                                userfullname: userfullname
-                                            }),
-                                            contentType: 'application/json',
-                                            success: function(response) {
-                                                messagesDiv.append('<p><strong>Usuario registrado exitosamente.</strong></p>');
-                                                scrollToBottom();
-                                            },
-                                            error: function(xhr, status, error) {
-                                                messagesDiv.append('<p><strong>Error al registrar usuario.</strong></p>');
-                                                scrollToBottom();
-                                            }
-                                        });
-                                    }).catch(function(error) {
-                                        messagesDiv.append('<p><strong>Error al obtener información del usuario.</strong></p>');
-                                        scrollToBottom();
-                                    });
-                                } else {
-                                    messagesDiv.append('<p><strong>Error al verificar usuario.</strong></p>');
-                                    scrollToBottom();
-                                }
-                            }
-                        });
+                            }).catch(function() {
+                                // Error al obtener contexto del estudiante
+                            });
+                        } else {
+                            // Error al verificar usuario
+                        }
                     }
                 });
             }
@@ -336,6 +318,7 @@ define(['jquery'], function($) {
              * Obtiene las calificaciones y genera recomendaciones.
              */
             function obtenerRecomendaciones() {
+                showTutorLoader();
                 var params = {
                     wstoken: '10b97b49ec5c5119e48c566de5228f8f',
                     wsfunction: 'gradereport_user_get_grade_items',
@@ -367,10 +350,11 @@ define(['jquery'], function($) {
                             });
                         }
                         if (notas.length === 0) {
+                            removeTutorLoader();
                             showTutor('No hay actividades con notas mayores a 0 para analizar.');
                             return;
                         }
-                        var instruccionNotas = "Actúa como un tutor virtual especializado en Responsabilidad Social Empresarial. Tu tarea es analizar las calificaciones de un estudiante y generar recomendaciones personalizadas para mejorar su rendimiento en cada actividad. Recibirás una lista de calificaciones en el formato: [{\"userid\": number, \"name\": string, \"grade\": number, \"actividad\": string}, ...]. Para cada actividad, evalúa la nota (que está en una escala de 0 a 10) y genera una recomendación específica basada en el rendimiento del estudiante. Si la nota es menor a 5, sugiere acciones para mejorar (por ejemplo, revisar conceptos específicos, practicar más ejercicios, o buscar ayuda adicional). Si la nota está entre 5 y 7, sugiere formas de consolidar el aprendizaje (por ejemplo, profundizar en temas específicos o aplicar conceptos en proyectos prácticos). Si la nota es mayor a 7, felicita al estudiante y sugiere cómo puede seguir avanzando (por ejemplo, explorar temas más avanzados o liderar proyectos). Devuelve las recomendaciones en formato JSON con la siguiente estructura: {\"recomendaciones\": [{\"userid\": number, \"name\": string, \"nota\": number, \"actividad\": string, \"recomendacion\": string}, ...]}. Responde en español.";
+                        var instruccionNotas = "Actúa como un tutor virtual especializado en Responsabilidad Social Empresarial. Tu tarea es analizar las calificaciones de un estudiante y generar recomendaciones personalizadas para mejorar su rendimiento en cada actividad. Recibirás una lista de calificaciones en el formato: [{\"userid\": number, \"name\": string, \"grade\": number, \"actividad\": string}, ...]. Para cada actividad, evalúa la nota (que está en una escala de 0 a 10) y genera una recomendación específica basada en el rendimiento del estudiante. Si la nota es menor a 5, sugiere acciones para mejorar (por ejemplo, revisar conceptos específicos, practicar más ejercicios, o buscar ayuda adicional). Si la nota está entre 5 y 7, sugiere formas de consolidar el aprendizaje (por ejemplo, profundizar en temas específicos o aplicar conceptos en proyectos prácticos). Si la nota es mayor a 7, felicita al estudiante y sugiere cómo puede seguir avanzando (por ejemplo, explorar temas más avanzados o liderar proyectos). Devuelve las recomendaciones en formato JSON con la siguiente estructura: {\"recomendaciones\": [{\"userid\": number, \"name\": string, \"grade\": number, \"actividad\": string, \"recomendacion\": string}, ...]}. Responde en español.";
                         $.ajax({
                             url: API_tutor,
                             method: 'POST',
@@ -381,6 +365,7 @@ define(['jquery'], function($) {
                             }),
                             contentType: 'application/json',
                             success: function(response) {
+                                removeTutorLoader();
                                 if (response.respuesta) {
                                     var cleanedResponse = response.respuesta
                                         .replace(/```json\n/, '')
@@ -392,11 +377,12 @@ define(['jquery'], function($) {
                                             var studentName = recomendaciones.recomendaciones[0].name;
                                             var mensaje = `Hola ${studentName}, he analizado tus calificaciones. Aquí tienes algunas recomendaciones para mejorar:<br>`;
                                             recomendaciones.recomendaciones.forEach(rec => {
-                                                mensaje += `- En ${rec.actividad}, obtuviste ${rec.nota}: ${rec.recomendacion}<br>`;
+                                                // Usar rec.grade (no rec.nota)
+                                                mensaje += `- En ${rec.actividad}, obtuviste ${rec.grade}: ${rec.recomendacion}<br>`;
                                             });
                                             showTutor(mensaje);
                                         } else {
-                                            showTutor('Error: No se encontraron recomendaciones en la respuesta.');
+                                            showTutor('No se han obtenido recomendaciones para mostrar.');
                                         }
                                     } catch (parseError) {
                                         showTutor('Error al parsear las recomendaciones: ' + parseError.message);
@@ -406,11 +392,13 @@ define(['jquery'], function($) {
                                 }
                             },
                             error: function(xhr, status, error) {
+                                removeTutorLoader();
                                 showTutor('Error al obtener recomendaciones: ' + error);
                             }
                         });
                     },
                     error: function(xhr, status, error) {
+                        removeTutorLoader();
                         showTutor('Error al obtener calificaciones: ' + error + ' (Código: ' + xhr.status + ')');
                     }
                 });
@@ -426,17 +414,15 @@ define(['jquery'], function($) {
             var btnIniciarEscaneo = $('#btn-iniciar-escaneo');
             if (btnIniciarEscaneo.length) {
                 btnIniciarEscaneo.on('click', function() {
-                    messagesDiv.append('<p><strong>Actualizando contexto del estudiante...</strong></p>');
-                    scrollToBottom();
                     // Refresca el contexto en sessionStorage
                     obtenerContextoEstudiante(userid, courseid, true).then(function() {
                         verificarIntentosCuestionario(obtenerRecomendaciones);
-                    }).catch(function(error) {
+                    }).catch(function() {
+                        // Error al refrescar el contexto del estudiante
                     });
                 });
             } else {
-                messagesDiv.append('<p><strong>Botón de escaneo no encontrado.</strong></p>');
-                scrollToBottom();
+                // Botón de escaneo no encontrado
             }
 
             // Manejo del formulario de chat
@@ -472,6 +458,7 @@ define(['jquery'], function($) {
                         }),
                         contentType: 'application/json'
                     });
+                    showTutorLoader();
                     obtenerContextoEstudiante(userid, courseid).then(function(notas) {
                         var instruccion = "Actúa como un profesor especializado en Responsabilidad Social Empresarial. Responde todas las preguntas relacionadas con el tema de forma clara, detallada y estructurada, utilizando ejemplos prácticos y profundizando en las teorías, principios y metodologías que conforman el área. Además, si la pregunta está relacionada con el estudiante, sus calificaciones o su progreso, utiliza el siguiente contexto del estudiante para personalizar tu respuesta. Si el mensaje no está relacionado con Responsabilidad Social Empresarial o el curso, responde que solo puedes ayudar en esos temas. Responde en español de manera técnica, pero accesible para estudiantes. CONTEXTO_ESTUDIANTE: " + JSON.stringify(notas);
                         $.ajax({
@@ -502,13 +489,12 @@ define(['jquery'], function($) {
                                 showTutor('Error al conectar con la API: ' + error);
                             }
                         });
-                    }).catch(function(error) {
-                        showTutor('Error al obtener el contexto del estudiante: ' + error);
+                    }).catch(function() {
+                        showTutor('Error al obtener el contexto del estudiante.');
                     });
                 });
             } else {
-                messagesDiv.append('<p><strong>Formulario de chat no encontrado.</strong></p>');
-                scrollToBottom();
+                // Formulario no encontrado
             }
         }
     };

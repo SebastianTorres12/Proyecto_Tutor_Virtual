@@ -1,38 +1,58 @@
+/* eslint-disable camelcase */
 /* eslint-disable jsdoc/require-jsdoc */
-/* eslint-disable no-trailing-spaces */
 /* eslint-disable jsdoc/require-param */
 /* eslint-disable max-len */
-/* eslint-disable no-console */
-define(['jquery'], function ($) {
+define(['jquery'], function($) {
     // Definición de variables generales para las APIs
     const API_tutor = 'http://localhost:8000/generar'; // API para generar retroalimentación del tutor
     const API_Moodle = 'http://localhost/webservice/rest/server.php'; // API de Moodle para servicios web
+    const API_BD_TUTOR_BASE = 'http://localhost:8080/api/';
 
     return {
-        init: function (userid, courseid, cmid, modname) {
+        init: function(userid, courseid, cmid, modname) {
             var messagesDiv = $('#feedback-messages');
             var requestBtn = $('#feedback-request-btn');
             var cooldown = false;
             var cooldownTime = 10000; // 10 segundos (puedes cambiar a 5000 para 5 segundos)
 
-            // --- NUEVA FUNCIÓN PARA ANIMAR EL TEXTO ---
+            // Loader visual para el tutor
+            function showTutorLoader() {
+                var loader = $('<div class="tutor-bubble tutor-loader"></div>').html('<span><em>El tutor está escribiendo...</em></span>');
+                messagesDiv.append(loader);
+                messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+            }
+            function removeTutorLoader() {
+                messagesDiv.find('.tutor-loader').remove();
+            }
+
+            // --- NUEVA FUNCIÓN PARA ANIMAR EL TEXTO EN BURBUJA Y RESPETAR HTML (ESTILO CHAT) ---
             function mostrarTextoAnimado(element, html, velocidad = 20) {
-                element.append('<div class="typing-tutor"></div>');
-                var target = element.find('.typing-tutor').last();
+                removeTutorLoader();
+                var bubble = $('<div class="tutor-bubble typing-tutor"></div>');
+                bubble.append('<span></span>');
+                element.append(bubble);
+                var span = bubble.find('span');
+                // Permitir etiquetas seguras: <br>, <b>, <i>, <pre>, <code>
+                var safeHtml = html
+                    .replace(/```([a-zA-Z]*)\n([\s\S]*?)```/g, function(match, lang, code) {
+                        return '<pre><code>' + $('<div>').text(code).html() + '</code></pre>';
+                    })
+                    .replace(/\n/g, '<br>')
+                    .replace(/<(?!br\s*\/?>|b>|\/b>|i>|\/i>|pre>|\/pre>|code>|\/code>)[^>]+>/gi, '');
                 var i = 0;
-                // Opcional: dividir por palabras en vez de letras
-                // var partes = html.split(' ');
-                var partes = html.split('');
-                function escribir() {
-                    if (i < partes.length) {
-                        target.append(partes[i]);
+                function typeChar() {
+                    if (i <= safeHtml.length) {
+                        span.html(safeHtml.slice(0, i));
+                        element.scrollTop(element[0].scrollHeight);
                         i++;
-                        setTimeout(escribir, velocidad);
+                        setTimeout(typeChar, velocidad);
                     } else {
-                        target.removeClass('typing-tutor');
+                        span.html(safeHtml);
+                        bubble.removeClass('typing-tutor');
+                        element.scrollTop(element[0].scrollHeight);
                     }
                 }
-                escribir();
+                typeChar();
             }
             // --- FIN NUEVA FUNCIÓN ---
 
@@ -51,14 +71,14 @@ define(['jquery'], function ($) {
                 var queryString = $.param(params);
                 var fullUrl = `${API_Moodle}?${queryString}`;
 
-                messagesDiv.append('<p><strong>Obteniendo calificación de la actividad...</strong></p>');
-                messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-
+                showTutorLoader();
                 $.ajax({
                     url: fullUrl,
                     method: 'GET',
                     dataType: 'json',
-                    success: function (data) {
+                    success: function(data) {
+                        removeTutorLoader();
+
                         var actividadData = null;
                         if (data.usergrades) {
                             data.usergrades.forEach(user => {
@@ -103,7 +123,9 @@ define(['jquery'], function ($) {
                             url: fullUrlContext,
                             method: 'GET',
                             dataType: 'json',
-                            success: function (contextData) {
+                            success: function(contextData) {
+                                removeTutorLoader();
+
                                 if (!contextData.cm || !contextData.cm.instance) {
                                     messagesDiv.append('<p><strong>Tutor:</strong> No se pudo obtener el ID de la actividad.</p>');
                                     messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
@@ -121,14 +143,16 @@ define(['jquery'], function ($) {
                                     messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                                 }
                             },
-                            error: function (xhr, status, error) {
-                                messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener contextid: ' + error + '</p>');
+                            error: function() {
+                                removeTutorLoader();
+                                messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener contextid.</p>');
                                 messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                             }
                         });
                     },
-                    error: function (xhr, status, error) {
-                        messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener calificaciones: ' + error + ' (Código: ' + xhr.status + ')</p>');
+                    error: function() {
+                        removeTutorLoader();
+                        messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener calificaciones.</p>');
                         messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                     }
                 });
@@ -150,11 +174,14 @@ define(['jquery'], function ($) {
                 var queryString = $.param(params);
                 var fullUrl = `${API_Moodle}?${queryString}`;
 
+                showTutorLoader();
                 $.ajax({
                     url: fullUrl,
                     method: 'GET',
                     dataType: 'json',
-                    success: function (data) {
+                    success: function(data) {
+                        removeTutorLoader();
+
                         if (!data.attempts || data.attempts.length === 0) {
                             messagesDiv.append('<p><strong>Tutor:</strong> No se encontraron intentos para este cuestionario.</p>');
                             messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
@@ -191,7 +218,9 @@ define(['jquery'], function ($) {
                             url: fullUrlAttempt,
                             method: 'GET',
                             dataType: 'json',
-                            success: function (attemptData) {
+                            success: function(attemptData) {
+                                removeTutorLoader();
+
                                 if (attemptData.warnings && attemptData.warnings.length > 0) {
                                     messagesDiv.append('<p><strong>Tutor:</strong> Advertencias: ' + attemptData.warnings[0].message + '</p>');
                                     messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
@@ -247,14 +276,16 @@ define(['jquery'], function ($) {
                                     enviarDatosParaRetroalimentacion(actividadData);
                                 }
                             },
-                            error: function (xhr, status, error) {
-                                messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener datos del intento: ' + error + ' (Código: ' + xhr.status + ') - ' + (xhr.responseText || 'Sin detalles') + '</p>');
+                            error: function() {
+                                removeTutorLoader();
+                                messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener datos del intento.</p>');
                                 messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                             }
                         });
                     },
-                    error: function (xhr, status, error) {
-                        messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener intentos: ' + error + ' (Código: ' + xhr.status + ') - ' + (xhr.responseText || 'Sin detalles') + '</p>');
+                    error: function() {
+                        removeTutorLoader();
+                        messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener intentos.</p>');
                         messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                     }
                 });
@@ -274,11 +305,14 @@ define(['jquery'], function ($) {
                 var queryStringAssignment = $.param(paramsAssignment);
                 var fullUrlAssignment = `${API_Moodle}?${queryStringAssignment}`;
 
+                showTutorLoader();
                 $.ajax({
                     url: fullUrlAssignment,
                     method: 'GET',
                     dataType: 'json',
-                    success: function (assignmentData) {
+                    success: function(assignmentData) {
+                        removeTutorLoader();
+
                         var assignment = null;
                         if (assignmentData.courses && assignmentData.courses.length > 0) {
                             assignmentData.courses.forEach(course => {
@@ -319,7 +353,9 @@ define(['jquery'], function ($) {
                             url: fullUrlSubmission,
                             method: 'GET',
                             dataType: 'json',
-                            success: function (submissionData) {
+                            success: function(submissionData) {
+                                removeTutorLoader();
+
                                 var entregaEstudiante = null;
                                 if (submissionData.assignments && submissionData.assignments.length > 0) {
                                     var submissions = submissionData.assignments[0].submissions;
@@ -346,14 +382,16 @@ define(['jquery'], function ($) {
 
                                 enviarDatosParaRetroalimentacion(actividadData);
                             },
-                            error: function (xhr, status, error) {
-                                messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener entregas: ' + error + '</p>');
+                            error: function() {
+                                removeTutorLoader();
+                                messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener entregas.</p>');
                                 messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                             }
                         });
                     },
-                    error: function (xhr, status, error) {
-                        messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener datos de la tarea: ' + error + '</p>');
+                    error: function() {
+                        removeTutorLoader();
+                        messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener datos de la tarea.</p>');
                         messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                     }
                 });
@@ -363,6 +401,18 @@ define(['jquery'], function ($) {
              * Envía los datos a la API para obtener retroalimentación detallada.
              */
             function enviarDatosParaRetroalimentacion(actividadData) {
+                showTutorLoader();
+                // Guardar la entrada del usuario (input)
+                $.ajax({
+                    url: `${API_BD_TUTOR_BASE}messages/save`,
+                    method: 'POST',
+                    data: JSON.stringify({
+                        user_id: userid,
+                        message_type: 'feed_input',
+                        message_text: JSON.stringify(actividadData)
+                    }),
+                    contentType: 'application/json'
+                });
                 var instruccionRetro = `
                     Actúa como un tutor virtual especializado en Responsabilidad Social Empresarial. Tu tarea es proporcionar retroalimentación educativa a un estudiante basada en el estado de una tarea. Recibirás los datos en el formato: 
                     {
@@ -376,9 +426,11 @@ define(['jquery'], function ($) {
                         "submissionStatus": string, 
                         "feedback": string
                     }
+                    
                     - Si el estado es "pendiente", analiza el título y la descripción de la tarea y proporciona recomendaciones específicas para que el estudiante la complete exitosamente.
                     - Si el estado es "entregada_no_calificada", informa al estudiante que su tarea está en proceso de evaluación y sugiere cómo puede prepararse para futuras tareas similares.
                     - Si el estado es "calificada", analiza la calificación y la retroalimentación del profesor para proporcionar retroalimentación adicional. Explica qué hizo bien el estudiante, qué puede mejorar, y sugiere pasos específicos para futuras tareas.
+                    
                     Devuelve la retroalimentación en formato texto, en español, con un tono profesional y motivador.
                 `;
 
@@ -405,20 +457,33 @@ define(['jquery'], function ($) {
                                 entrada: promptApoyo,
                                 max_nuevos_tokens: 256
                             }),
-                            success: function (response) {
+                            success: function(response) {
+                                removeTutorLoader();
+
                                 if (response.respuesta) {
                                     var retroalimentacionFormateada = response.respuesta.replace(/\n/g, '<br>');
                                     var mensaje = `<p><strong>Tutor:</strong><br>${retroalimentacionFormateada}<br>Tienes ${actividadData.remainingAttempts} intento(s) restante(s). ¡Sigue practicando!</p>`;
-                                    // messagesDiv.append(mensaje);
                                     mostrarTextoAnimado(messagesDiv, mensaje);
                                     messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                                    // Guardar la respuesta del tutor (output)
+                                    $.ajax({
+                                        url: `${API_BD_TUTOR_BASE}messages/save`,
+                                        method: 'POST',
+                                        data: JSON.stringify({
+                                            user_id: userid,
+                                            message_type: 'feed_output',
+                                            message_text: response.respuesta
+                                        }),
+                                        contentType: 'application/json'
+                                    });
                                 } else {
                                     messagesDiv.append('<p><strong>Tutor:</strong> Error: No se pudo generar la retroalimentación de apoyo.</p>');
                                     messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                                 }
                             },
-                            error: function (xhr, status, error) {
-                                messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener retroalimentación de apoyo: ' + error + ' (Código: ' + xhr.status + ') - ' + (xhr.responseText || 'Sin detalles') + '</p>');
+                            error: function() {
+                                removeTutorLoader();
+                                messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener retroalimentación de apoyo.</p>');
                                 messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                             }
                         });
@@ -445,19 +510,32 @@ define(['jquery'], function ($) {
                                     entrada: prompt,
                                     max_nuevos_tokens: 256
                                 }),
-                                success: function (response) {
+                                success: function(response) {
+                                    removeTutorLoader();
+
                                     if (response.respuesta) {
                                         var mensaje = `<p><strong>Tutor:</strong> Pregunta ${pregunta.numero}: "${pregunta.pregunta}":<br>` +
                                             `<strong>Respondiste:</strong> "${pregunta.respuestaSeleccionada}" (Incorrecta).<br>` +
                                             `<strong>Correcta:</strong> "${pregunta.respuestaCorrecta}".<br>` +
                                             `<strong>Explicación:</strong> ${response.respuesta}</p>`;
-                                        // messagesDiv.append(mensaje);
                                         mostrarTextoAnimado(messagesDiv, mensaje);
                                         messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                                        // Guardar la respuesta del tutor (output)
+                                        $.ajax({
+                                            url: `${API_BD_TUTOR_BASE}messages/save`,
+                                            method: 'POST',
+                                            data: JSON.stringify({
+                                                user_id: userid,
+                                                message_type: 'feed_output',
+                                                message_text: response.respuesta
+                                            }),
+                                            contentType: 'application/json'
+                                        });
                                     }
                                 },
-                                error: function (xhr, status, error) {
-                                    messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener retroalimentación para la Pregunta ${pregunta.numero}: ' + error + ' (Código: ' + xhr.status + ') - ' + (xhr.responseText || 'Sin detalles') + '</p>');
+                                error: function() {
+                                    removeTutorLoader();
+                                    messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener retroalimentación para la Pregunta.</p>');
                                     messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                                 }
                             });
@@ -477,7 +555,7 @@ define(['jquery'], function ($) {
                                     Identifica los temas de los errores y propone una actividad práctica y breve (máximo 200 palabras) que aborde todos los temas. Comienza con "¡Vamos a reforzar tus conocimientos!" y usa un tono motivador. No menciones libros ni materiales externos.
                                 `;
 
-                                $.ajax({
+                                return $.ajax({
                                     url: API_tutor, // Usar variable para endpoint de generación
                                     method: 'POST',
                                     contentType: 'application/json',
@@ -486,26 +564,42 @@ define(['jquery'], function ($) {
                                         entrada: promptRefuerzo,
                                         max_nuevos_tokens: 256
                                     }),
-                                    success: function (response) {
+                                    success: function(response) {
+                                        removeTutorLoader();
+
                                         if (response.respuesta) {
                                             var actividadFormateada = response.respuesta.replace(/\n/g, '<br>');
                                             var mensaje = `<p><strong>Tutor:</strong><br><strong>Actividad de refuerzo:</strong><br>${actividadFormateada}</p>`;
-                                            // messagesDiv.append(mensaje);
                                             mostrarTextoAnimado(messagesDiv, mensaje);
                                             messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                                            // Guardar la respuesta del tutor (output)
+                                            $.ajax({
+                                                url: `${API_BD_TUTOR_BASE}messages/save`,
+                                                method: 'POST',
+                                                data: JSON.stringify({
+                                                    user_id: userid,
+                                                    message_type: 'feed_output',
+                                                    message_text: response.respuesta
+                                                }),
+                                                contentType: 'application/json'
+                                            });
                                         } else {
                                             messagesDiv.append('<p><strong>Tutor:</strong> Error: No se pudo generar la actividad de refuerzo.</p>');
                                             messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                                         }
                                     },
-                                    error: function (xhr, status, error) {
-                                        messagesDiv.append('<p><strong>Tutor:</strong> Error al generar actividad de refuerzo: ' + error + ' (Código: ' + xhr.status + ') - ' + (xhr.responseText || 'Sin detalles') + '</p>');
+                                    error: function() {
+                                        removeTutorLoader();
+                                        messagesDiv.append('<p><strong>Tutor:</strong> Error al generar actividad de refuerzo.</p>');
                                         messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                                     }
                                 });
                             }
-                        }).catch(error => {
-                            messagesDiv.append('<p><strong>Tutor:</strong> Error al procesar retroalimentaciones: ' + error + '</p>');
+                            // No action is needed, just return null to satisfy arrow function return
+                            return null;
+                        }).catch(() => {
+                            removeTutorLoader();
+                            messagesDiv.append('<p><strong>Tutor:</strong> Error al procesar retroalimentaciones.</p>');
                             messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                         });
                     }
@@ -520,20 +614,33 @@ define(['jquery'], function ($) {
                             entrada: JSON.stringify(actividadData),
                             max_nuevos_tokens: 256
                         }),
-                        success: function (response) {
+                        success: function(response) {
+                            removeTutorLoader();
+
                             if (response.respuesta) {
                                 var retroalimentacionFormateada = response.respuesta.replace(/\n/g, '<br>');
                                 var mensaje = `<p><strong>Tutor:</strong> Hola ${actividadData.name}, aquí tienes la retroalimentación para "${actividadData.actividad}":<br>${retroalimentacionFormateada}</p>`;
-                                // messagesDiv.append(mensaje);
                                 mostrarTextoAnimado(messagesDiv, mensaje);
                                 messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
+                                // Guardar la respuesta del tutor (output)
+                                $.ajax({
+                                    url: `${API_BD_TUTOR_BASE}messages/save`,
+                                    method: 'POST',
+                                    data: JSON.stringify({
+                                        user_id: userid,
+                                        message_type: 'feed_output',
+                                        message_text: response.respuesta
+                                    }),
+                                    contentType: 'application/json'
+                                });
                             } else {
                                 messagesDiv.append('<p><strong>Tutor:</strong> Error: Respuesta inválida de la API.</p>');
                                 messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                             }
                         },
-                        error: function (xhr, status, error) {
-                            messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener retroalimentación: ' + error + ' (Código: ' + xhr.status + ') - ' + (xhr.responseText || 'Sin detalles') + '</p>');
+                        error: function() {
+                            removeTutorLoader();
+                            messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener retroalimentación.</p>');
                             messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                         }
                     });
@@ -542,7 +649,7 @@ define(['jquery'], function ($) {
 
             // Evento click para el botón, con control de cooldown
             if (requestBtn.length) {
-                requestBtn.on('click', function () {
+                requestBtn.on('click', function() {
                     if (cooldown) {
                         messagesDiv.append('<p><strong>Espera unos segundos antes de volver a solicitar retroalimentación.</strong></p>');
                         messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
@@ -551,15 +658,13 @@ define(['jquery'], function ($) {
                     cooldown = true;
                     requestBtn.prop('disabled', true);
                     obtenerRetroalimentacion();
-                    setTimeout(function () {
+                    setTimeout(function() {
                         cooldown = false;
                         requestBtn.prop('disabled', false);
                     }, cooldownTime);
                 });
             }
 
-            // Eliminar la llamada automática:
-            // obtenerRetroalimentacion();
         }
     };
 });

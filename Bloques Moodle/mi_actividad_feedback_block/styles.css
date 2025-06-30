@@ -46,11 +46,11 @@
 
 /* Estilo para los mensajes */
 #feedback-messages p {
-    margin: 2px 0; /* Reducir margen vertical */
-    padding: 5px 8px; /* Reducir padding */
-    border-radius: 10px; /* Reducir bordes redondeados */
-    max-width: 90%; /* Aumentar el ancho máximo de los mensajes */
-    word-wrap: break-word;
+    margin: 0 0 8px 0;
+    padding: 0;
+    border-radius: 0;
+    max-width: 100%;
+    background: none;
 }
 
 /* Mensajes del usuario (Tú) */
@@ -80,4 +80,30 @@
 #feedback-messages p strong:contains("Error:"),
 #feedback-messages p strong:contains("Debug:") {
     color: #dc3545;
+}
+
+/* Burbujas tipo chat para usuario y tutor (solo tutor en feedback) */
+.tutor-bubble {
+    background: #dcf8c6;
+    color: #222;
+    float: right;
+    margin-left: 10%;
+    margin-right: 0;
+    border-radius: 22px 22px 8px 22px;
+    border: 1px solid #e0e0e0;
+    padding: 16px 22px;
+    max-width: 90%;
+    min-width: 120px;
+    word-break: break-word;
+    font-size: 16px;
+    line-height: 1.6;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    position: relative;
+    margin-bottom: 8px;
+    opacity: 0;
+    animation: fadeIn 0.4s forwards;
+}
+
+@keyframes fadeIn {
+    to { opacity: 1; }
 }

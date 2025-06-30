@@ -11,23 +11,9 @@ from database import SessionLocal, engine
 app = FastAPI()
 
 # Configurar CORS
-origins = [
-    "http://192.168.67.76",
-    "http://192.168.67.76:80",
-    "http://192.168.67.76:8080",
-    "http://192.168.67.76:3000",
-    "http://127.0.0.1",
-    "http://127.0.0.1:80",
-    "http://127.0.0.1:8080",
-    "http://localhost",
-    "http://localhost:80",
-    "http://localhost:3000",
-    "http://localhost:8080",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],  # Permitir solicitudes desde cualquier origen
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -62,6 +48,16 @@ class MessageCreate(BaseModel):
     user_id: int
     message_type: str
     message_text: str
+
+class MessageResponse(BaseModel):
+    message_id: int
+    user_id: int
+    message_type: str
+    message_text: str
+    sent_at: datetime
+
+    class Config:
+        from_attributes = True
 
 class StatisticsResponse(BaseModel):
     top_user: Optional[dict] = None
@@ -111,6 +107,11 @@ def save_message(message: MessageCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_message)
     return {"message": "Message saved successfully", "message_id": new_message.message_id}
+
+@app.get("/api/messages", response_model=List[MessageResponse])
+def get_messages(db: Session = Depends(get_db)):
+    messages = db.query(models.Message).all()
+    return messages
 
 @app.get("/api/statistics", response_model=StatisticsResponse)
 def get_statistics(db: Session = Depends(get_db)):
