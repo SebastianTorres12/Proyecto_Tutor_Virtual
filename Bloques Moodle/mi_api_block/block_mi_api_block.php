@@ -6,6 +6,10 @@ class block_mi_api_block extends block_base {
         $this->title = get_string('mi_api_block', 'block_mi_api_block');
     }
 
+    public function has_add_block_capability($context) {
+        return has_capability('block/mi_api_block:addinstance', $context);
+    }
+
     public function get_content() {
         global $CFG, $COURSE, $USER;
 
@@ -55,7 +59,7 @@ class block_mi_api_block extends block_base {
         $this->content = new stdClass();
         $this->content->text = '<div id="chat-container">';
         // Agregar el botón para iniciar el escaneo
-        $this->content->text .= '<button id="btn-iniciar-escaneo">Iniciar Escaneo</button>';
+        $this->content->text .= '<button id="btn-iniciar-escaneo">Ver desempeño</button>';
         // Contenedor para los mensajes
         $this->content->text .= '<div id="chat-messages" style="height: 200px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px;"></div>';
         // Formulario de chat

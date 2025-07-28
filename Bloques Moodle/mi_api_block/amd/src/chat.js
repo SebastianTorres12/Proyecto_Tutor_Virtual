@@ -1,3 +1,4 @@
+/* eslint-disable no-trailing-spaces */
 /* eslint-disable camelcase */
 /* eslint-disable jsdoc/require-jsdoc */
 /* eslint-disable promise/always-return */
@@ -86,6 +87,32 @@ define(['jquery'], function($) {
         });
     }
 
+    // Función para llamar a la API del backend local
+    function llamarAPITutor(instruccion, entrada, maxTokens) {
+        return new Promise(function(resolve, reject) {
+            $.ajax({
+                url: API_tutor,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    instruccion: instruccion,
+                    entrada: entrada,
+                    max_nuevos_tokens: maxTokens || 1000
+                }),
+                success: function(response) {
+                    if (response.respuesta) {
+                        resolve({ respuesta: response.respuesta });
+                    } else {
+                        reject(new Error('Respuesta inválida de la API'));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    reject(new Error(error));
+                }
+            });
+        });
+    }
+
     return {
         init: function(userid, courseid, role) {
             var messagesDiv = $('#chat-messages');
@@ -121,13 +148,17 @@ define(['jquery'], function($) {
                 bubble.append('<span></span>');
                 messagesDiv.append(bubble);
                 scrollToBottom();
-                // Permitir etiquetas seguras: <br>, <b>, <i>, <pre>, <code>
+                // Mejorar saltos de línea para mensajes largos
                 var safeHtml = htmlMsg
+                    // Negritas
+                    .replace(/\*\*([^*]+)\*\*/g, function(match, p1) { return '<b>' + p1.replace(/\n/g, '<br>') + '</b>'; })
+                    // Código
                     .replace(/```([a-zA-Z]*)\n([\s\S]*?)```/g, function(match, lang, code) {
-                        return '<pre><code>' + $('<div>').text(code).html() + '</code></pre>';
+                        return '<pre><code>' + $('<div>').text(code).html().replace(/\n/g, '<br>') + '</code></pre>';
                     })
+                    .replace(/\n{2,}/g, '<br><br>')
                     .replace(/\n/g, '<br>')
-                    .replace(/<(?!br\s*\/?>|b>|\/b>|i>|\/i>|pre>|\/pre>|code>|\/code>)[^>]+>/gi, '');
+                    .replace(/<(?!br\s*\/?>|b>|\/b>|strong>|\/strong>|i>|\/i>|pre>|\/pre>|code>|\/code>)[^>]+>/gi, '');
                 var i = 0;
                 function typeChar() {
                     if (i <= safeHtml.length) {
@@ -137,15 +168,143 @@ define(['jquery'], function($) {
                         setTimeout(typeChar, 12);
                     } else {
                         bubble.find('span').html(safeHtml);
+                        addCodeActions(bubble);
+                        bubble.find('pre code').each(function() {
+                            var codeHtml = $(this).html();
+                            var formattedCode = codeHtml.replace(/<br\s*\/?>/gi, '\n');
+                            $(this).text(formattedCode);
+                        });
                         scrollToBottom();
                     }
                 }
                 typeChar();
             }
 
+            // Función para agregar botones de acción a los bloques de código
+            function addCodeActions(container) {
+                container.find('pre').each(function() {
+                    var $pre = $(this);
+                    var codeText = $pre.find('code').text() || $pre.text();
+                    var codeHtml = $pre.find('code').html() || $pre.html();
+                    var $actions = $('<div class="code-actions"></div>');
+                    // Botón de copiar
+                    var $copyBtn = $('<button class="code-action-btn copy-btn" title="Copiar código">📋</button>');
+                    $copyBtn.on('click', function(e) {
+                        e.stopPropagation();
+                        copyToClipboard(codeText, codeHtml);
+                        showCopyNotification();
+                    });
+                    // Botón de expandir
+                    var $expandBtn = $('<button class="code-action-btn expand-btn" title="Ver en ventana ampliada">🔍</button>');
+                    $expandBtn.on('click', function(e) {
+                        e.stopPropagation();
+                        showCodeModal(codeText);
+                    });
+                    $actions.append($copyBtn).append($expandBtn);
+                    $pre.css('position', 'relative').append($actions);
+                });
+            }
+
+            // Función para copiar texto al portapapeles
+            function copyToClipboard(text, htmlSource) {
+                // Si se pasa htmlSource, convertir <br> y etiquetas a saltos de línea
+                if (htmlSource) {
+                    // Quitar etiquetas y convertir <br> a saltos de línea
+                    text = htmlSource
+                        .replace(/<br\s*\/?>/gi, '\n')
+                        .replace(/<pre>|<code>|<\/pre>|<\/code>/gi, '')
+                        .replace(/&nbsp;/gi, ' ')
+                        .replace(/&lt;/gi, '<')
+                        .replace(/&gt;/gi, '>')
+                        .replace(/&amp;/gi, '&');
+                }
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).catch(function() {
+                        fallbackCopyToClipboard(text);
+                    });
+                } else {
+                    fallbackCopyToClipboard(text);
+                }
+            }
+
+            // Función de respaldo para copiar texto
+            function fallbackCopyToClipboard(text) {
+                var textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";
+                textArea.style.left = "-999999px";
+                textArea.style.top = "-999999px";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                } catch (err) {
+                    console.error('Error al copiar texto: ', err);
+                }
+                document.body.removeChild(textArea);
+            }
+
+            // Función para mostrar notificación de copiado
+            function showCopyNotification() {
+                var $notification = $('<div class="copy-notification">Código copiado al portapapeles</div>');
+                $('body').append($notification);
+                
+                setTimeout(function() {
+                    $notification.addClass('show');
+                }, 10);
+                
+                setTimeout(function() {
+                    $notification.removeClass('show');
+                    setTimeout(function() {
+                        $notification.remove();
+                    }, 300);
+                }, 2000);
+            }
+
+            // Función para mostrar el modal con el código expandido
+            function showCodeModal(codeText) {
+                var $modal = $('#code-modal');
+                if ($modal.length === 0) {
+                    $modal = $('<div id="code-modal" class="code-modal">' +
+                        '<div class="code-modal-content">' +
+                            '<div class="code-modal-header">' +
+                                '<h3>Código</h3>' +
+                                '<span class="code-modal-close">&times;</span>' +
+                            '</div>' +
+                            '<div class="code-modal-body">' +
+                                '<pre><code></code></pre>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>');
+                    $('body').append($modal);
+                    $modal.find('.code-modal-close').on('click', function() {
+                        $modal.hide();
+                    });
+                    $modal.on('click', function(e) {
+                        if (e.target === this) {
+                            $modal.hide();
+                        }
+                    });
+                    $(document).on('keydown', function(e) {
+                        if (e.key === 'Escape' && $modal.is(':visible')) {
+                            $modal.hide();
+                        }
+                    });
+                }
+                // Mostrar el código con saltos de línea reales y sin etiquetas HTML
+                var formattedCode = codeText.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '');
+                $modal.find('code').text(formattedCode);
+                $modal.show();
+            }
+
             function showTutor(msg) {
                 animateTutorMessage(msg);
             }
+
+            // Mostrar mensaje de bienvenida al iniciar el bloque
+            var mensajeBienvenida = '¡Bienvenido al chat de tutoría! Si tienes dudas sobre Análisis y Diseño de Software, tu progreso en el curso, o necesitas recomendaciones, no dudes en preguntar. Estoy aquí para ayudarte.';
+            showTutor(mensajeBienvenida);
 
             /**
              * Registra al usuario en la API si no existe.
@@ -354,32 +513,31 @@ define(['jquery'], function($) {
                             showTutor('No hay actividades con notas mayores a 0 para analizar.');
                             return;
                         }
-                        var instruccionNotas = "Actúa como un tutor virtual especializado en Responsabilidad Social Empresarial. Tu tarea es analizar las calificaciones de un estudiante y generar recomendaciones personalizadas para mejorar su rendimiento en cada actividad. Recibirás una lista de calificaciones en el formato: [{\"userid\": number, \"name\": string, \"grade\": number, \"actividad\": string}, ...]. Para cada actividad, evalúa la nota (que está en una escala de 0 a 10) y genera una recomendación específica basada en el rendimiento del estudiante. Si la nota es menor a 5, sugiere acciones para mejorar (por ejemplo, revisar conceptos específicos, practicar más ejercicios, o buscar ayuda adicional). Si la nota está entre 5 y 7, sugiere formas de consolidar el aprendizaje (por ejemplo, profundizar en temas específicos o aplicar conceptos en proyectos prácticos). Si la nota es mayor a 7, felicita al estudiante y sugiere cómo puede seguir avanzando (por ejemplo, explorar temas más avanzados o liderar proyectos). Devuelve las recomendaciones en formato JSON con la siguiente estructura: {\"recomendaciones\": [{\"userid\": number, \"name\": string, \"grade\": number, \"actividad\": string, \"recomendacion\": string}, ...]}. Responde en español.";
-                        $.ajax({
-                            url: API_tutor,
-                            method: 'POST',
-                            data: JSON.stringify({
-                                instruccion: instruccionNotas,
-                                entrada: JSON.stringify(notas),
-                                max_nuevos_tokens: 5000
-                            }),
-                            contentType: 'application/json',
-                            success: function(response) {
+                        var instruccionNotas = "Actúa como un tutor virtual especializado en la enseñanza de Análisis y Diseño de Software. Tu tarea es analizar las calificaciones de un estudiante y generar recomendaciones personalizadas para mejorar su rendimiento en cada actividad. Recibirás una lista de calificaciones en el formato: [{\"userid\": number, \"name\": string, \"grade\": number, \"actividad\": string}, ...]. Para cada actividad, evalúa la nota (que está en una escala de 0 a 10) y genera una recomendación específica basada en el rendimiento del estudiante. Si la nota es menor a 5, sugiere acciones para mejorar (por ejemplo, revisar conceptos específicos, practicar más ejercicios, o buscar ayuda adicional). Si la nota está entre 5 y 7, sugiere formas de consolidar el aprendizaje (por ejemplo, profundizar en temas específicos o aplicar conceptos en proyectos prácticos). Si la nota es mayor a 7, felicita al estudiante y sugiere cómo puede seguir avanzando (por ejemplo, explorar temas más avanzados o liderar proyectos). Devuelve las recomendaciones en formato JSON con la siguiente estructura: {\"recomendaciones\": [{\"userid\": number, \"name\": string, \"grade\": number, \"actividad\": string, \"recomendacion\": string}, ...]}. Responde en español.";
+                        llamarAPITutor(instruccionNotas, JSON.stringify(notas), 5000)
+                            .then(function(response) {
                                 removeTutorLoader();
                                 if (response.respuesta) {
-                                    var cleanedResponse = response.respuesta
-                                        .replace(/```json\n/, '')
-                                        .replace(/\n```/, '')
-                                        .trim();
+                                    var cleanedResponse = response.respuesta;
+                                    var jsonMatch = cleanedResponse.match(/{[\s\S]*}/);
+                                    var textoExplicativo = cleanedResponse;
+                                    if (jsonMatch) {
+                                        textoExplicativo = cleanedResponse.substring(0, jsonMatch.index).trim();
+                                        cleanedResponse = jsonMatch[0];
+                                    }
                                     try {
                                         var recomendaciones = JSON.parse(cleanedResponse);
                                         if (recomendaciones.recomendaciones && recomendaciones.recomendaciones.length > 0) {
                                             var studentName = recomendaciones.recomendaciones[0].name;
-                                            var mensaje = `Hola ${studentName}, he analizado tus calificaciones. Aquí tienes algunas recomendaciones para mejorar:<br>`;
+                                            var mensaje = `<div style='margin-bottom:8px;'><strong>Hola ${studentName}, he analizado tus calificaciones. Aquí tienes algunas recomendaciones para mejorar:</strong></div>`;
+                                            if (textoExplicativo) {
+                                                mensaje += `<div style='color:#555;margin-bottom:8px;'>${textoExplicativo.replace(/\n/g, '<br>')}</div>`;
+                                            }
+                                            mensaje += '<ul style="margin-left:18px;">';
                                             recomendaciones.recomendaciones.forEach(rec => {
-                                                // Usar rec.grade (no rec.nota)
-                                                mensaje += `- En ${rec.actividad}, obtuviste ${rec.grade}: ${rec.recomendacion}<br>`;
+                                                mensaje += `<li><strong>${rec.actividad}</strong> (Nota: ${rec.grade}):<br><span style='color:#007bff;'>${rec.recomendacion}</span></li>`;
                                             });
+                                            mensaje += '</ul>';
                                             showTutor(mensaje);
                                         } else {
                                             showTutor('No se han obtenido recomendaciones para mostrar.');
@@ -390,12 +548,11 @@ define(['jquery'], function($) {
                                 } else {
                                     showTutor('Error: Respuesta inválida de la API.');
                                 }
-                            },
-                            error: function(xhr, status, error) {
+                            })
+                            .catch(function(error) {
                                 removeTutorLoader();
-                                showTutor('Error al obtener recomendaciones: ' + error);
-                            }
-                        });
+                                showTutor('Error al obtener recomendaciones: ' + error.message);
+                            });
                     },
                     error: function(xhr, status, error) {
                         removeTutorLoader();
@@ -412,13 +569,33 @@ define(['jquery'], function($) {
 
             // Configurar el botón de escaneo para refrescar contexto y recomendaciones
             var btnIniciarEscaneo = $('#btn-iniciar-escaneo');
+            var cooldownEscaneo = false;
+            var cooldownTimeEscaneo = 10000; // 10 segundos
+            
             if (btnIniciarEscaneo.length) {
                 btnIniciarEscaneo.on('click', function() {
+                    if (cooldownEscaneo) {
+                        showTutor('Espera un momento antes de solicitar el análisis de desempeño nuevamente.');
+                        return;
+                    }
+                    
+                    cooldownEscaneo = true;
+                    btnIniciarEscaneo.prop('disabled', true);
+                    btnIniciarEscaneo.text('Analizando...');
+                    
                     // Refresca el contexto en sessionStorage
                     obtenerContextoEstudiante(userid, courseid, true).then(function() {
                         verificarIntentosCuestionario(obtenerRecomendaciones);
                     }).catch(function() {
                         // Error al refrescar el contexto del estudiante
+                        showTutor('Error al obtener el contexto del estudiante para el análisis.');
+                    }).finally(function() {
+                        // Restaurar el botón después del cooldown
+                        setTimeout(function() {
+                            cooldownEscaneo = false;
+                            btnIniciarEscaneo.prop('disabled', false);
+                            btnIniciarEscaneo.text('Ver desempeño');
+                        }, cooldownTimeEscaneo);
                     });
                 });
             } else {
@@ -427,6 +604,17 @@ define(['jquery'], function($) {
 
             // Manejo del formulario de chat
             if (form.length) {
+                // Enviar mensaje con Enter, salto de línea con Shift+Enter
+                chatInput.on('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        if (!e.shiftKey) {
+                            e.preventDefault();
+                            form.trigger('submit');
+                        }
+                        // Si es Shift+Enter, permite salto de línea (comportamiento por defecto)
+                    }
+                });
+
                 form.on('submit', function(e) {
                     e.preventDefault();
                     if (isChatBlocked) {
@@ -438,8 +626,7 @@ define(['jquery'], function($) {
                         return;
                     }
                     if (esSaludoOMensajeIrrelevante(message)) {
-                        // Mensaje del bot, no del tutor, así que burbuja tipo tutor
-                        var bubble = $('<div class="chat-bubble tutor-bubble"></div>').html('<span>¡Hola! Por favor, realiza preguntas relacionadas con Responsabilidad Social Empresarial o sobre tu progreso en el curso para que pueda ayudarte mejor.</span>');
+                        var bubble = $('<div class="chat-bubble tutor-bubble"></div>').html('<span>¡Hola! Por favor, realiza preguntas relacionadas con Análisis y Diseño de Software o sobre tu progreso en el curso para que pueda ayudarte mejor.</span>');
                         messagesDiv.append(bubble);
                         scrollToBottom();
                         chatInput.val('');
@@ -447,7 +634,6 @@ define(['jquery'], function($) {
                     }
                     showUser(message);
                     chatInput.val('');
-                    // Guardar el mensaje del usuario en la API
                     $.ajax({
                         url: `${API_BD_TUTOR_BASE}messages/save`,
                         method: 'POST',
@@ -460,20 +646,11 @@ define(['jquery'], function($) {
                     });
                     showTutorLoader();
                     obtenerContextoEstudiante(userid, courseid).then(function(notas) {
-                        var instruccion = "Actúa como un profesor especializado en Responsabilidad Social Empresarial. Responde todas las preguntas relacionadas con el tema de forma clara, detallada y estructurada, utilizando ejemplos prácticos y profundizando en las teorías, principios y metodologías que conforman el área. Además, si la pregunta está relacionada con el estudiante, sus calificaciones o su progreso, utiliza el siguiente contexto del estudiante para personalizar tu respuesta. Si el mensaje no está relacionado con Responsabilidad Social Empresarial o el curso, responde que solo puedes ayudar en esos temas. Responde en español de manera técnica, pero accesible para estudiantes. CONTEXTO_ESTUDIANTE: " + JSON.stringify(notas);
-                        $.ajax({
-                            url: API_tutor,
-                            method: 'POST',
-                            data: JSON.stringify({
-                                instruccion: instruccion,
-                                entrada: message,
-                                max_nuevos_tokens: 1000
-                            }),
-                            contentType: 'application/json',
-                            success: function(response) {
+                        var instruccion = "Actúa como un profesor especializado en Análisis y Diseño de Software. Responde todas las preguntas relacionadas con el tema de forma clara, detallada y estructurada, utilizando ejemplos prácticos y profundizando en las teorías, principios y metodologías que conforman el área. Además, si la pregunta está relacionada con el estudiante, sus calificaciones o su progreso, utiliza el siguiente contexto del estudiante para personalizar tu respuesta. Si el mensaje no está relacionado con Análisis y Diseño de Software o el curso, responde que solo puedes ayudar en esos temas. Responde en español de manera técnica, pero accesible para estudiantes. CONTEXTO_ESTUDIANTE: " + JSON.stringify(notas);
+                        llamarAPITutor(instruccion, message, 1000)
+                            .then(function(response) {
                                 var tutorResponse = response.respuesta;
                                 showTutor(tutorResponse);
-                                // Guardar la respuesta del tutor en la API
                                 $.ajax({
                                     url: `${API_BD_TUTOR_BASE}messages/save`,
                                     method: 'POST',
@@ -484,11 +661,10 @@ define(['jquery'], function($) {
                                     }),
                                     contentType: 'application/json'
                                 });
-                            },
-                            error: function(xhr, status, error) {
-                                showTutor('Error al conectar con la API: ' + error);
-                            }
-                        });
+                            })
+                            .catch(function(error) {
+                                showTutor('Error al conectar con la API: ' + error.message);
+                            });
                     }).catch(function() {
                         showTutor('Error al obtener el contexto del estudiante.');
                     });

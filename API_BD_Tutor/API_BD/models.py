@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 
@@ -17,7 +17,7 @@ class Message(Base):
     __tablename__ = "ChatMessages"
 
     message_id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True)
+    user_id = Column(Integer, ForeignKey('Users.user_id'), index=True)
     message_type = Column(String(20))
     message_text = Column(Text)
     sent_at = Column(DateTime, default=datetime.utcnow)

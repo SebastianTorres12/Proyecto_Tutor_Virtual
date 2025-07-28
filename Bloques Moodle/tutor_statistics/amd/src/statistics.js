@@ -1,3 +1,9 @@
+/* eslint-disable no-console */
+/* eslint-disable complexity */
+/* eslint-disable no-redeclare */
+/* eslint-disable block-scoped-var */
+/* eslint-disable @babel/object-curly-spacing */
+/* eslint-disable promise/no-nesting */
 /* eslint-disable brace-style */
 /* eslint-disable camelcase */
 /* eslint-disable no-unused-vars */
@@ -7,8 +13,8 @@
 /* eslint-disable max-len */
 define(['jquery', 'core/str'], function($, str) {
     // Definición de variables generales para las APIs
-    const API_BD_TUTOR_BASE = 'http://localhost:8080/api/'; // Base URL para la API de base de datos (se añaden endpoints específicos)
-    const API_tutor = 'http://localhost:8000/generar'; // API para generar respuestas del tutor
+    const API_BD_TUTOR_BASE = 'http://localhost:8080/api/';
+    const API_tutor = 'http://localhost:8000/generar';
 
     // Función para esperar a que Chart.js esté disponible
     function waitForChart(callback) {
@@ -19,6 +25,32 @@ define(['jquery', 'core/str'], function($, str) {
         setTimeout(function() {
             waitForChart(callback);
         }, 100);
+    }
+
+    // Función para llamar a la API local
+    function llamarAPITutor(instruccion, entrada, maxTokens) {
+        return new Promise(function(resolve, reject) {
+            $.ajax({
+                url: API_tutor,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    instruccion: instruccion,
+                    entrada: entrada,
+                    max_nuevos_tokens: maxTokens || 256
+                }),
+                success: function(response) {
+                    if (response.respuesta) {
+                        resolve({ respuesta: response.respuesta });
+                    } else {
+                        reject(new Error('Respuesta inválida de la API'));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    reject(new Error(error));
+                }
+            });
+        });
     }
 
     return {
@@ -63,7 +95,7 @@ define(['jquery', 'core/str'], function($, str) {
                                         });
                                         var allInputs = inputMessages.map(function(msg) { return msg.message_text; });
                                         var conclusionPrompt = `
-                                            Actúa como un tutor virtual especializado en Responsabilidad Social Empresarial. Recibirás estadísticas y todas las preguntas realizadas por los estudiantes (inputs) en el siguiente formato JSON:
+                                            Actúa como un tutor virtual especializado en la enseñanza de Análisis y Diseño de Software. Recibirás estadísticas y todas las preguntas realizadas por los estudiantes (inputs) en el siguiente formato JSON:
                                             {
                                                 "top_user": { "userfullname": string, "total_messages": number },
                                                 "total_messages": number,
@@ -71,10 +103,11 @@ define(['jquery', 'core/str'], function($, str) {
                                                 "total_peak_hour_messages": number,
                                                 "inputs": [string]
                                             }
-                                            Analiza todas las preguntas y devuelve un objeto JSON con dos propiedades:
-                                            - "temas": un array con los 3 temas principales a reforzar (solo nombres de temas, sin explicación, NO uses ejemplos genéricos ni repitas los del prompt, y NO repitas temas en el array).
+                                            Analiza todas las preguntas y responde SOLO con un objeto JSON válido, sin explicaciones ni formato adicional, con estas tres propiedades:
+                                            - "temas": un array con los 3 temas generales principales a reforzar (por ejemplo, "Modelado UML", "Patrones de Diseño", "Metodologías de Desarrollo de Software", "Requisitos", "Arquitectura de Software", "Testing", etc. Elige los más representativos y evita temas demasiado específicos o repetidos).
+                                            - "temasCount": un array con el número de mensajes detectados para cada tema, en el mismo orden que el array de temas (por ejemplo, [5, 3, 2]).
                                             - "conclusion": una conclusión breve y elaborada en español (máximo 50 palabras) dirigida al profesor, explicando por qué reforzar esos temas en el curso, basada en el análisis real de las preguntas de los estudiantes.
-                                            No incluyas datos personales ni preguntas exactas. No incluyas ejemplos de respuesta en tu salida.
+                                            No incluyas datos personales ni preguntas exactas. No incluyas ejemplos de respuesta en tu salida. NO uses formato Markdown ni listas, SOLO el JSON.
                                         `;
                                         var tutorPayload = {
                                             top_user: statisticsResponse.top_user,
@@ -86,48 +119,57 @@ define(['jquery', 'core/str'], function($, str) {
                                         // --- Loader visual mientras el tutor analiza ---
                                         var loader = $('<div class="tutor-loader" style="margin:16px 0;text-align:center;font-style:italic;color:#28a745;">El tutor está analizando los datos...</div>');
                                         statisticsDiv.append(loader);
-                                        $.ajax({
-                                            url: API_tutor,
-                                            method: 'POST',
-                                            contentType: 'application/json',
-                                            data: JSON.stringify({
-                                                instruccion: conclusionPrompt,
-                                                entrada: JSON.stringify(tutorPayload),
-                                                max_nuevos_tokens: 256
-                                            }),
-                                            success: function(apiResponse) {
+                                        llamarAPITutor(conclusionPrompt, JSON.stringify(tutorPayload), 256)
+                                            .then(function(apiResponse) {
                                                 isLoading = false;
                                                 loader.remove();
-                                                // Validar formato de respuesta
-                                                var temas = Array.isArray(apiResponse.temas) ? apiResponse.temas : [];
-                                                var conclusionText = typeof apiResponse.conclusion === 'string' ? apiResponse.conclusion : (apiResponse.respuesta || '');
-                                                // Si no hay array de temas, intentar extraerlos del texto (mejorado para frases compuestas y saltos de línea)
-                                                if (!temas.length && conclusionText) {
-                                                    var match = conclusionText.match(/temas?:\s*([\w\s,;áéíóúÁÉÍÓÚüÜñÑ\-]+)(?:\.|\n|$)/i);
-                                                    if (match && match[1]) {
-                                                        temas = match[1]
-                                                            .split(/,|;|\n|\r|\.|\u2022|\-/)
-                                                            .map(function(t) { return t.trim(); })
-                                                            .filter(Boolean);
-                                                    }
-                                                }
-                                                // Si la respuesta viene como string JSON, parsearla correctamente
-                                                if (!temas.length && conclusionText && conclusionText.trim().startsWith('{')) {
-                                                    try {
-                                                        var parsed = JSON.parse(conclusionText);
-                                                        if (Array.isArray(parsed.temas)) {
-                                                            temas = parsed.temas;
+                                                try {
+                                                    var jsonString = apiResponse.respuesta;
+                                                    // console.log('Respuesta del tutor (apiResponse.respuesta):', jsonString);
+                                                    var temas = [];
+                                                    var temasCount = [];
+                                                    var conclusionText = '';
+                                                    var trimmed = (typeof jsonString === 'string') ? jsonString.trim() : '';
+                                                    // Si el string empieza con '{', intenta buscar la última '}' y parsear ese bloque
+                                                    if (trimmed.startsWith('{')) {
+                                                        var lastBrace = trimmed.lastIndexOf('}');
+                                                        var jsonBlock = '';
+                                                        if (lastBrace !== -1) {
+                                                            jsonBlock = trimmed.substring(0, lastBrace + 1);
+                                                        } else {
+                                                            // Si no hay llave de cierre, la agregamos
+                                                            jsonBlock = trimmed + '}';
                                                         }
-                                                        if (typeof parsed.conclusion === 'string') {
-                                                            conclusionText = parsed.conclusion;
+                                                        try {
+                                                            var parsed = JSON.parse(jsonBlock);
+                                                            temas = Array.isArray(parsed.temas) ? parsed.temas : [];
+                                                            temasCount = Array.isArray(parsed.temasCount) ? parsed.temasCount : [];
+                                                            conclusionText = typeof parsed.conclusion === 'string' ? parsed.conclusion : '';
+                                                        } catch (jsonError) {
+                                                            statisticsDiv.append('<p style="color:#c00;">Error: El bloque JSON no se pudo parsear, incluso agregando la llave de cierre.</p>');
+                                                            return;
                                                         }
-                                                    } catch (e) {
-                                                        // Si falla el parseo, se mantiene el fallback
+                                                    } else {
+                                                        var jsonMatch = (typeof jsonString === 'string') ? jsonString.match(/{[\s\S]*}/) : null;
+                                                        if (jsonMatch) {
+                                                            var cleanJson = jsonMatch[0];
+                                                            var parsed = JSON.parse(cleanJson);
+                                                            temas = Array.isArray(parsed.temas) ? parsed.temas : [];
+                                                            temasCount = Array.isArray(parsed.temasCount) ? parsed.temasCount : [];
+                                                            conclusionText = typeof parsed.conclusion === 'string' ? parsed.conclusion : '';
+                                                        } else {
+                                                            statisticsDiv.append('<p style="color:#c00;">Error: No se encontró bloque JSON en la respuesta del tutor.</p>');
+                                                            return;
+                                                        }
                                                     }
+                                                } catch (e) {
+                                                    statisticsDiv.append('<p style="color:#c00;">Error: No se pudo parsear la respuesta del tutor.</p>');
+                                                    return;
                                                 }
                                                 // Limitar a solo 3 temas
                                                 if (temas.length > 3) {
                                                     temas = temas.slice(0, 3);
+                                                    temasCount = temasCount.slice(0, 3);
                                                 }
                                                 // Mostrar gráfico de temas SOLO con los datos del tutor
                                                 topicChartContainer.find('#top-topic-chart').remove();
@@ -135,16 +177,28 @@ define(['jquery', 'core/str'], function($, str) {
                                                 var topTopicCanvas = document.getElementById('top-topic-chart');
                                                 if (topTopicCanvas) {
                                                     var topTopicCtx = topTopicCanvas.getContext('2d');
+                                                    // Paleta de colores ampliada
+                                                    var palette = [
+                                                        '#dc3545', '#007bff', '#28a745', '#ffc107', '#17a2b8', '#6610f2', '#fd7e14', '#6f42c1', '#20c997', '#e83e8c'
+                                                    ];
+                                                    var borderPalette = [
+                                                        '#c82333', '#0056b3', '#218838', '#e0a800', '#117a8b', '#520dc2', '#e8590c', '#5a189a', '#198754', '#d63384'
+                                                    ];
+                                                    var colorCount = temas.length > 0 ? temas.length : 1;
+                                                    var chartColors = palette.slice(0, colorCount);
+                                                    var chartBorders = borderPalette.slice(0, colorCount);
+                                                    // Los labels muestran el nombre y el conteo
+                                                    var chartLabels = temas.length ? temas.map(function(t, i) { return t + ' (' + (temasCount[i] || 0) + ')'; }) : ['Sin temas detectados'];
                                                     new Chart(topTopicCtx, {
                                                         type: 'doughnut',
                                                         data: {
-                                                            labels: temas.length ? temas : ['Sin temas detectados'],
+                                                            labels: chartLabels,
                                                             datasets: [{
                                                                 label: 'Temas a Reforzar',
-                                                                data: temas.length ? temas.map(function() { return 1; }) : [1],
-                                                                backgroundColor: ['#dc3545', '#007bff', '#28a745'],
-                                                                borderColor: ['#c82333', '#0056b3', '#218838'],
-                                                                borderWidth: 1
+                                                                data: temasCount,
+                                                                backgroundColor: chartColors,
+                                                                borderColor: chartBorders,
+                                                                borderWidth: 2
                                                             }]
                                                         },
                                                         options: {
@@ -152,13 +206,18 @@ define(['jquery', 'core/str'], function($, str) {
                                                                 legend: {
                                                                     position: 'bottom',
                                                                     labels: {
-                                                                        font: {size: 13, weight: 'bold'}
+                                                                        font: {size: 10, weight: 'bold'}, // Reducido de 16 a 12
+                                                                        color: '#222',
+                                                                        padding: 12, // Reducido de 18 a 12
+                                                                        boxWidth: 18 // Reducido de 22 a 18
                                                                     }
                                                                 },
                                                                 tooltip: {
                                                                     callbacks: {
                                                                         label: function(context) {
-                                                                            return context.label;
+                                                                            var label = context.label || '';
+                                                                            var value = context.raw || 0;
+                                                                            return 'Tema: ' + label + ' - ' + value + ' mensajes';
                                                                         }
                                                                     }
                                                                 }
@@ -176,19 +235,18 @@ define(['jquery', 'core/str'], function($, str) {
                                                     statisticsDiv.append(`
                                                         <div class="conclusion-container">
                                                             <h4>Recomendación para el Profesor/a</h4>
-                                                            <p><strong>Profesor/a:</strong> Se recomienda reforzar los siguientes temas de Responsabilidad Social Empresarial: <b>${temasList}</b>.<br>Razón: ${conclusionText.replace(/\n/g, '<br>')}</p>
+                                                            <p><strong>Profesor/a:</strong> Se recomienda reforzar los siguientes temas: <b>${temasList}</b>.<br>Razón: ${conclusionText.replace(/\n/g, '<br>')}</p>
                                                         </div>
                                                     `);
                                                 } else {
                                                     statisticsDiv.append('<p style="color:#c00;">No se pudo obtener una conclusión válida del tutor.</p>');
                                                 }
-                                            },
-                                            error: function(xhr, status, error) {
+                                            })
+                                            .catch(function(error) {
                                                 isLoading = false;
                                                 loader.remove();
-                                                statisticsDiv.append('<p style="color:#c00;">Error al generar la conclusión: ' + error + '</p>');
-                                            }
-                                        });
+                                                statisticsDiv.append('<p style="color:#c00;">Error al generar la conclusión: ' + error.message + '</p>');
+                                            });
                                     },
                                     error: function(xhr, status, error) {
                                         isLoading = false;

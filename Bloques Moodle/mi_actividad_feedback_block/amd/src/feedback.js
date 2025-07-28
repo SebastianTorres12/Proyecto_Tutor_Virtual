@@ -1,12 +1,40 @@
+/* eslint-disable promise/no-nesting */
+/* eslint-disable promise/always-return */
 /* eslint-disable camelcase */
 /* eslint-disable jsdoc/require-jsdoc */
 /* eslint-disable jsdoc/require-param */
 /* eslint-disable max-len */
 define(['jquery'], function($) {
     // Definición de variables generales para las APIs
-    const API_tutor = 'http://localhost:8000/generar'; // API para generar retroalimentación del tutor
+    const API_tutor = 'http://localhost:8000/generar'; // API local para generar retroalimentación del tutor
     const API_Moodle = 'http://localhost/webservice/rest/server.php'; // API de Moodle para servicios web
     const API_BD_TUTOR_BASE = 'http://localhost:8080/api/';
+
+    // Función para llamar a la API local
+    function llamarAPITutor(instruccion, entrada, maxTokens) {
+        return new Promise(function(resolve, reject) {
+            $.ajax({
+                url: API_tutor,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    instruccion: instruccion,
+                    entrada: entrada,
+                    max_nuevos_tokens: maxTokens || 256
+                }),
+                success: function(response) {
+                    if (response.respuesta) {
+                        resolve({ respuesta: response.respuesta });
+                    } else {
+                        reject(new Error('Respuesta inválida de la API'));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    reject(new Error(error));
+                }
+            });
+        });
+    }
 
     return {
         init: function(userid, courseid, cmid, modname) {
@@ -32,13 +60,15 @@ define(['jquery'], function($) {
                 bubble.append('<span></span>');
                 element.append(bubble);
                 var span = bubble.find('span');
-                // Permitir etiquetas seguras: <br>, <b>, <i>, <pre>, <code>
+                // Mejorar saltos de línea para mensajes largos
                 var safeHtml = html
+                    .replace(/\*\*([^*]+)\*\*/g, function(match, p1) { return '<b>' + p1.replace(/\n/g, '<br>') + '</b>'; })
                     .replace(/```([a-zA-Z]*)\n([\s\S]*?)```/g, function(match, lang, code) {
-                        return '<pre><code>' + $('<div>').text(code).html() + '</code></pre>';
+                        return '<pre><code>' + $('<div>').text(code).html().replace(/\n/g, '<br>') + '</code></pre>';
                     })
+                    .replace(/\n{2,}/g, '<br><br>')
                     .replace(/\n/g, '<br>')
-                    .replace(/<(?!br\s*\/?>|b>|\/b>|i>|\/i>|pre>|\/pre>|code>|\/code>)[^>]+>/gi, '');
+                    .replace(/<(?!br\s*\/?>|b>|\/b>|strong>|\/strong>|i>|\/i>|pre>|\/pre>|code>|\/code>)[^>]+>/gi, '');
                 var i = 0;
                 function typeChar() {
                     if (i <= safeHtml.length) {
@@ -50,6 +80,11 @@ define(['jquery'], function($) {
                         span.html(safeHtml);
                         bubble.removeClass('typing-tutor');
                         element.scrollTop(element[0].scrollHeight);
+                        bubble.find('pre code').each(function() {
+                            var codeHtml = $(this).html();
+                            var formattedCode = codeHtml.replace(/<br\s*\/?>/gi, '\n');
+                            $(this).text(formattedCode);
+                        });
                     }
                 }
                 typeChar();
@@ -414,7 +449,7 @@ define(['jquery'], function($) {
                     contentType: 'application/json'
                 });
                 var instruccionRetro = `
-                    Actúa como un tutor virtual especializado en Responsabilidad Social Empresarial. Tu tarea es proporcionar retroalimentación educativa a un estudiante basada en el estado de una tarea. Recibirás los datos en el formato: 
+                    Actúa como un tutor virtual especializado en la enseñanza de Análisis y Diseño de Software. Tu tarea es proporcionar retroalimentación educativa a un estudiante basada en el estado de una tarea. Recibirás los datos en el formato: 
                     {
                         "userid": number, 
                         "name": string, 
@@ -438,28 +473,19 @@ define(['jquery'], function($) {
                     if (actividadData.remainingAttempts > 0) {
                         // Retroalimentación de apoyo para intentos restantes
                         var promptApoyo = `
-                            Eres un tutor virtual especializado en Responsabilidad Social Empresarial. Un estudiante ha respondido incorrectamente algunas preguntas en un cuestionario, pero aún tiene ${actividadData.remainingAttempts} intento(s) restante(s). Proporciona retroalimentación de apoyo que identifique los temas principales de las preguntas incorrectas y ofrezca consejos generales para mejorar, sin revelar las respuestas correctas ni detalles específicos de las preguntas.
+                            Eres un tutor virtual especializado en Análisis y Diseño de Software. Un estudiante ha respondido incorrectamente algunas preguntas en un cuestionario, pero aún tiene ${actividadData.remainingAttempts} intento(s) restante(s). Proporciona retroalimentación de apoyo que identifique los temas principales de las preguntas incorrectas y ofrezca consejos generales para mejorar, sin revelar las respuestas correctas ni detalles específicos de las preguntas.
 
                             Preguntas incorrectas:
                             ${actividadData.preguntasIncorrectas.map((pregunta, index) => `
                             Pregunta ${index + 1} (Número ${pregunta.numero}): ${pregunta.pregunta}
                             `).join('\n')}
 
-                            Identifica los temas principales (por ejemplo, ética empresarial, sostenibilidad, responsabilidad social interna o externa) y sugiere cómo mejorar en ellos (máximo 150 palabras). Comienza con "¡No te preocupes, estás progresando!" y usa un tono motivador. No menciones respuestas correctas ni hagas referencia a libros o materiales externos.
+                            Identifica los temas principales (por ejemplo, modelado UML, casos de uso, diagramas de clases) y sugiere cómo mejorar en ellos (máximo 150 palabras). Comienza con "¡No te preocupes, estás progresando!" y usa un tono motivador. No menciones respuestas correctas ni hagas referencia a libros o materiales externos.
                         `;
 
-                        $.ajax({
-                            url: API_tutor, // Usar variable para endpoint de generación
-                            method: 'POST',
-                            contentType: 'application/json',
-                            data: JSON.stringify({
-                                instruccion: "Proporciona retroalimentación de apoyo basada en los temas de las preguntas incorrectas.",
-                                entrada: promptApoyo,
-                                max_nuevos_tokens: 256
-                            }),
-                            success: function(response) {
+                        llamarAPITutor("Proporciona retroalimentación de apoyo basada en los temas de las preguntas incorrectas.", promptApoyo, 256)
+                            .then(function(response) {
                                 removeTutorLoader();
-
                                 if (response.respuesta) {
                                     var retroalimentacionFormateada = response.respuesta.replace(/\n/g, '<br>');
                                     var mensaje = `<p><strong>Tutor:</strong><br>${retroalimentacionFormateada}<br>Tienes ${actividadData.remainingAttempts} intento(s) restante(s). ¡Sigue practicando!</p>`;
@@ -480,18 +506,17 @@ define(['jquery'], function($) {
                                     messagesDiv.append('<p><strong>Tutor:</strong> Error: No se pudo generar la retroalimentación de apoyo.</p>');
                                     messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                                 }
-                            },
-                            error: function() {
+                            })
+                            .catch(function() {
                                 removeTutorLoader();
                                 messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener retroalimentación de apoyo.</p>');
                                 messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                            }
-                        });
+                            });
                     } else {
                         // Retroalimentación detallada y actividad de refuerzo cuando no hay intentos
                         var promesas = actividadData.preguntasIncorrectas.map(pregunta => {
                             var prompt = `
-                                Eres un tutor virtual especializado en Responsabilidad Social Empresarial. Explica por qué la respuesta correcta es adecuada para la siguiente pregunta de un cuestionario, considerando el contexto y las opciones disponibles.
+                                Eres un tutor virtual especializado en Análisis y Diseño de Software. Explica por qué la respuesta correcta es adecuada para la siguiente pregunta de un cuestionario, considerando el contexto y las opciones disponibles.
 
                                 **Pregunta**: ${pregunta.pregunta}
                                 **Respuesta seleccionada**: ${pregunta.respuestaSeleccionada} (incorrecta)
@@ -501,18 +526,9 @@ define(['jquery'], function($) {
                                 Explica por qué "${pregunta.respuestaCorrecta}" es correcta y por qué "${pregunta.respuestaSeleccionada}" no lo es. Usa un lenguaje claro, educativo y motivador (máximo 100 palabras).
                             `;
 
-                            return $.ajax({
-                                url: API_tutor, // Usar variable para endpoint de generación
-                                method: 'POST',
-                                contentType: 'application/json',
-                                data: JSON.stringify({
-                                    instruccion: "Proporciona una explicación clara y detallada.",
-                                    entrada: prompt,
-                                    max_nuevos_tokens: 256
-                                }),
-                                success: function(response) {
+                            return llamarAPITutor("Proporciona una explicación clara y detallada.", prompt, 256)
+                                .then(function(response) {
                                     removeTutorLoader();
-
                                     if (response.respuesta) {
                                         var mensaje = `<p><strong>Tutor:</strong> Pregunta ${pregunta.numero}: "${pregunta.pregunta}":<br>` +
                                             `<strong>Respondiste:</strong> "${pregunta.respuestaSeleccionada}" (Incorrecta).<br>` +
@@ -532,19 +548,17 @@ define(['jquery'], function($) {
                                             contentType: 'application/json'
                                         });
                                     }
-                                },
-                                error: function() {
+                                })
+                                .catch(function() {
                                     removeTutorLoader();
                                     messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener retroalimentación para la Pregunta.</p>');
                                     messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                                }
-                            });
+                                });
                         });
-
                         Promise.all(promesas).then(() => {
                             if (actividadData.grade < 7) {
                                 var promptRefuerzo = `
-                                    Eres un tutor virtual especializado en Responsabilidad Social Empresarial. Un estudiante obtuvo una calificación de ${actividadData.grade} en un cuestionario (escala 0-10). Propón una actividad de refuerzo para mejorar en los temas de los preguntas incorrectas:
+                                    Eres un tutor virtual especializado en Análisis y Diseño de Software. Un estudiante obtuvo una calificación de ${actividadData.grade} en un cuestionario (escala 0-10). Propón una actividad de refuerzo para mejorar en los temas de los preguntas incorrectas:
 
                                     ${actividadData.preguntasIncorrectas.map((pregunta, index) => `
                                     Pregunta ${index + 1} (Número ${pregunta.numero}): ${pregunta.pregunta}
@@ -552,21 +566,12 @@ define(['jquery'], function($) {
                                     Respuesta correcta: ${pregunta.respuestaCorrecta}
                                     `).join('\n')}
 
-                                    Identifica los temas de los errores y propone una actividad práctica y breve (máximo 200 palabras) que aborde todos los temas. Comienza con "¡Vamos a reforzar tus conocimientos!" y usa un tono motivador. No menciones libros ni materiales externos.
+                                    Identifica los temas de los errores y propone una actividad práctica y breve (máximo 200 palabras) que aborde todos los temas. Comienza con "¡Vamos a reforzar tus conocimientos!" and usa un tono motivador. No menciones libros ni materiales externos.
                                 `;
 
-                                return $.ajax({
-                                    url: API_tutor, // Usar variable para endpoint de generación
-                                    method: 'POST',
-                                    contentType: 'application/json',
-                                    data: JSON.stringify({
-                                        instruccion: "Proporciona una actividad de refuerzo basada en los errores del estudiante.",
-                                        entrada: promptRefuerzo,
-                                        max_nuevos_tokens: 256
-                                    }),
-                                    success: function(response) {
+                                return llamarAPITutor("Proporciona una actividad de refuerzo basada en los errores del estudiante.", promptRefuerzo, 256)
+                                    .then(function(response) {
                                         removeTutorLoader();
-
                                         if (response.respuesta) {
                                             var actividadFormateada = response.respuesta.replace(/\n/g, '<br>');
                                             var mensaje = `<p><strong>Tutor:</strong><br><strong>Actividad de refuerzo:</strong><br>${actividadFormateada}</p>`;
@@ -587,13 +592,12 @@ define(['jquery'], function($) {
                                             messagesDiv.append('<p><strong>Tutor:</strong> Error: No se pudo generar la actividad de refuerzo.</p>');
                                             messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                                         }
-                                    },
-                                    error: function() {
+                                    })
+                                    .catch(function() {
                                         removeTutorLoader();
                                         messagesDiv.append('<p><strong>Tutor:</strong> Error al generar actividad de refuerzo.</p>');
                                         messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                                    }
-                                });
+                                    });
                             }
                             // No action is needed, just return null to satisfy arrow function return
                             return null;
@@ -605,21 +609,40 @@ define(['jquery'], function($) {
                     }
                 } else {
                     // Retroalimentación para tareas
-                    $.ajax({
-                        url: API_tutor, // Usar variable para endpoint de generación
-                        method: 'POST',
-                        contentType: 'application/json',
-                        data: JSON.stringify({
-                            instruccion: instruccionRetro,
-                            entrada: JSON.stringify(actividadData),
-                            max_nuevos_tokens: 256
-                        }),
-                        success: function(response) {
+                    llamarAPITutor(instruccionRetro, JSON.stringify(actividadData), 256)
+                        .then(function(response) {
                             removeTutorLoader();
-
                             if (response.respuesta) {
-                                var retroalimentacionFormateada = response.respuesta.replace(/\n/g, '<br>');
-                                var mensaje = `<p><strong>Tutor:</strong> Hola ${actividadData.name}, aquí tienes la retroalimentación para "${actividadData.actividad}":<br>${retroalimentacionFormateada}</p>`;
+                                var cleanedResponse = response.respuesta;
+                                var jsonMatch = cleanedResponse.match(/{[\s\S]*}/);
+                                var textoExplicativo = cleanedResponse;
+                                if (jsonMatch) {
+                                    textoExplicativo = cleanedResponse.substring(0, jsonMatch.index).trim();
+                                    cleanedResponse = jsonMatch[0];
+                                }
+                                var mensaje = `<p><strong>Tutor:</strong> Hola ${actividadData.name}, aquí tienes la retroalimentación para "${actividadData.actividad}":</p>`;
+                                // Solo agregar texto explicativo si existe y no está vacío
+                                if (textoExplicativo) {
+                                    mensaje += `<div style='color:#555;margin-bottom:8px;'>${textoExplicativo.replace(/\n/g, '<br>')}</div>`;
+                                }
+                                // Agregar recomendaciones si existen
+                                try {
+                                    var recomendaciones = JSON.parse(cleanedResponse);
+                                    if (recomendaciones.recomendaciones && recomendaciones.recomendaciones.length > 0) {
+                                        mensaje += '<ul style="margin-left:18px;">';
+                                        recomendaciones.recomendaciones.forEach(rec => {
+                                            mensaje += `<li><strong>${rec.actividad}</strong> (Nota: ${rec.grade}):<br><span style='color:#007bff;'>${rec.recomendacion}</span></li>`;
+                                        });
+                                        mensaje += '</ul>';
+                                    } else if (recomendaciones.recomendacion) {
+                                        mensaje += `<div style='color:#007bff;'>${recomendaciones.recomendacion}</div>`;
+                                    }
+                                } catch (e) {
+                                    // Si no es JSON, solo mostrar el texto explicativo una vez
+                                    if (!textoExplicativo) {
+                                        mensaje += `<div>${response.respuesta.replace(/\n/g, '<br>')}</div>`;
+                                    }
+                                }
                                 mostrarTextoAnimado(messagesDiv, mensaje);
                                 messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                                 // Guardar la respuesta del tutor (output)
@@ -637,13 +660,12 @@ define(['jquery'], function($) {
                                 messagesDiv.append('<p><strong>Tutor:</strong> Error: Respuesta inválida de la API.</p>');
                                 messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
                             }
-                        },
-                        error: function() {
+                        })
+                        .catch(function() {
                             removeTutorLoader();
                             messagesDiv.append('<p><strong>Tutor:</strong> Error al obtener retroalimentación.</p>');
                             messagesDiv.scrollTop(messagesDiv[0].scrollHeight);
-                        }
-                    });
+                        });
                 }
             }
 

@@ -4,6 +4,10 @@ class block_mi_actividad_feedback_block extends block_base {
         $this->title = get_string('mi_actividad_feedback_block', 'block_mi_actividad_feedback_block');
     }
 
+    public function has_add_block_capability($context) {
+        return has_capability('block/mi_actividad_feedback_block:addinstance', $context);
+    }
+
     public function get_content() {
         global $CFG, $COURSE, $USER, $PAGE;
 
