@@ -23,7 +23,7 @@ El Tutor Virtual es una herramienta basada en inteligencia artificial diseñada 
 - Hardware recomendado: 4 GB de RAM mínimo.
 
 ## Instalación
-1. Clona este repositorio: `git clone https://github.com/tu-usuario/tutor-virtual.git`.
+1. Clona este repositorio: `https://github.com/SebastianTorres12/Proyecto_Tutor_Virtual.git`.
 2. Configura un entorno virtual: `python -m venv venv` y activa con `source venv/bin/activate` (Linux) o `venv\Scripts\activate` (Windows).
 3. Instala dependencias: `pip install -r requirements.txt`.
 4. Configura las variables de entorno para la API y la base de datos en un archivo `.env`.
