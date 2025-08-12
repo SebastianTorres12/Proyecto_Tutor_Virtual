@@ -1,7 +1,7 @@
 # Tutor Virtual para Análisis y Diseño de Software
 
 ## Descripción
-El Tutor Virtual es una herramienta basada en inteligencia artificial diseñada para apoyar a estudiantes y profesores de la asignatura de Análisis y Diseño de Software en la Universidad de las Fuerzas Armadas ESPE. Integrado en la plataforma Moodle, ofrece un chat en tiempo real, retroalimentación personalizada en tareas y cuestionarios, análisis de desempeño para estudiantes y estadísticas con recomendaciones para profesores. Este proyecto fue desarrollado por Edwin David Cantuña Morales y Sebastián Paúl Torres Tapia como parte de su tesis.
+El Tutor Virtual es una herramienta basada en inteligencia artificial diseñada para apoyar a estudiantes y profesores de la asignatura de Análisis y Diseño de Software en la Universidad de las Fuerzas Armadas ESPE. Integrado en la plataforma Moodle, ofrece un chat en tiempo real, retroalimentación personalizada en tareas y cuestionarios, análisis de desempeño para estudiantes y estadísticas con recomendaciones para profesores. Este proyecto fue desarrollado por los estudiantes Luis Ariel Burbano Pacheco, Edwin David Cantuña Morales, Christian Mateo Román Quiroz y Sebastián Paúl Torres Tapia.
 
 ## Características Principales
 - **Chat en Tiempo Real**: Permite a los estudiantes resolver dudas sobre temas como UML, patrones de diseño y metodologías ágiles sin temor a preguntar.
