@@ -25,9 +25,7 @@ El Tutor Virtual es una herramienta basada en inteligencia artificial diseñada 
 ## Instalación
 1. Clona este repositorio: `https://github.com/SebastianTorres12/Proyecto_Tutor_Virtual.git`.
 2. Configura un entorno virtual: `python -m venv venv` y activa con `source venv/bin/activate` (Linux) o `venv\Scripts\activate` (Windows).
-3. Instala dependencias: `pip install -r requirements.txt`.
-4. Configura las variables de entorno para la API y la base de datos en un archivo `.env`.
-5. Inicia la API: `python main.py`.
+3. Sigue los pasos detallados en el plan de despliegue.
 6. Integra el tutor en Moodle a través de los plugins proporcionados (contacta al administrador).
 
 ## Uso
